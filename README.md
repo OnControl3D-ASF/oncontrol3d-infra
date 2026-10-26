@@ -14,10 +14,26 @@ Factories/
 └── oncontrol3d-frontend/
 ```
 
+## Prerequisites
+
+Docker (with Compose v2), Node 22, git and the GitHub CLI (`gh`).
+
+```bash
+mkdir -p ~/Factories && cd ~/Factories
+gh repo clone OnControl3D-ASF/oncontrol3d-infra
+gh repo clone OnControl3D-ASF/oncontrol3d-frontend
+gh repo clone OnControl3D-ASF/oncontrol3d-backend-clinical
+gh repo clone OnControl3D-ASF/oncontrol3d-imaging-service -- -b develop
+```
+
+The imaging-service must be on `develop` until release v0.1.0 is merged
+into `main` (`main` still has unpinned dependencies).
+
 ## Run
 
 ```bash
-cp .env.example .env               # then set JWT_SECRET (openssl rand -hex 32)
+cd ~/Factories/oncontrol3d-infra
+printf 'DB_USERNAME=postgres\nDB_PASSWORD=postgres\nJWT_SECRET=%s\n' "$(openssl rand -hex 32)" > .env
 docker compose up -d --build
 
 cd ../oncontrol3d-frontend
