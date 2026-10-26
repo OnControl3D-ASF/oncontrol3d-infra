@@ -1,0 +1,78 @@
+# OnControl 3D — local stack (PACS + backend + imaging).
+# The frontend runs with `npm run dev`; its dev rewrites proxy /api, /orthanc
+# and /volview to the ports published here.
+#
+# Expects sibling checkouts:
+#   ../oncontrol3d-backend-clinical
+#   ../oncontrol3d-imaging-service
+
+name: oncontrol3d
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: OnControlSem
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d OnControlSem"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  orthanc:
+    image: orthancteam/orthanc:26.9.1
+    environment:
+      ORTHANC__NAME: OnControl3D
+      VOLVIEW_PLUGIN_ENABLED: "true"
+      DICOM_WEB_PLUGIN_ENABLED: "true"
+      # Local only: backend and imaging-service call Orthanc without credentials.
+      ORTHANC__AUTHENTICATION_ENABLED: "false"
+    ports:
+      - "8042:8042"
+    volumes:
+      - orthanc-data:/var/lib/orthanc/db
+
+  imaging-service:
+    build: ../oncontrol3d-imaging-service
+    environment:
+      ORTHANC_URL: http://orthanc:8042
+      # Browser-facing URLs: VolView (in the browser) downloads the volume from here.
+      PUBLIC_BASE_URL: http://localhost:8001
+      VOLVIEW_URL: http://localhost:8042/volview/index.html
+    ports:
+      - "8001:8001"
+    volumes:
+      - imaging-storage:/app/storage
+    depends_on:
+      - orthanc
+
+  backend:
+    build: ../oncontrol3d-backend-clinical
+    environment:
+      PORT: "8081"
+      DB_URL: jdbc:postgresql://postgres:5432/OnControlSem
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      IMAGING_SERVICE_URL: http://imaging-service:8001
+      ORTHANC_URL: http://orthanc:8042
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      orthanc:
+        condition: service_started
+      imaging-service:
+        condition: service_started
+
+volumes:
+  postgres-data:
+  orthanc-data:
+  imaging-storage:
