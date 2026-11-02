@@ -1,0 +1,46 @@
+name: Third-party image scan
+
+# Report only: these images are not published by this project, so findings do not block.
+on:
+  pull_request:
+    paths:
+      - docker-compose.yml
+      - .github/workflows/container.yml
+  schedule:
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TRIVY_IMAGE: aquasec/trivy@sha256:790fd66d1697395d8693d1acaa1ea702406a20f109b6fc7bac8db623eca6c06c
+
+jobs:
+  trivy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: postgres
+            image: postgres:16-alpine
+          - name: orthanc
+            image: orthancteam/orthanc:26.9.1
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Generate report
+        run: >
+          docker run --rm
+          -v "$GITHUB_WORKSPACE:/out"
+          -v trivy-cache:/root/.cache
+          "$TRIVY_IMAGE"
+          image "${{ matrix.image }}" --scanners vuln --format json --output "/out/trivy-${{ matrix.name }}.json"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: trivy-${{ matrix.name }}-report
+          path: trivy-${{ matrix.name }}.json
