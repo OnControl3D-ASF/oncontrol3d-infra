@@ -106,6 +106,12 @@ resource functionApp 'Microsoft.Web/sites@2025-03-01' = {
           value: appInsightsConnectionString
         }
         {
+          // Java: enables the Application Insights agent so TelemetryClient custom
+          // events (ToxicityAlertNotified, latencyMs) are actually sent.
+          name: 'APPLICATIONINSIGHTS_ENABLE_AGENT'
+          value: 'true'
+        }
+        {
           name: 'ServiceBusConnection__fullyQualifiedNamespace'
           value: serviceBusFullyQualifiedNamespace
         }
