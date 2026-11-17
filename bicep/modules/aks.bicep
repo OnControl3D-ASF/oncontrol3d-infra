@@ -1,5 +1,8 @@
 // AKS cluster: managed identity, OIDC issuer + workload identity (pods get Azure
-// identities without secrets) and the Key Vault Secrets Store CSI driver.
+// identities without secrets), the Key Vault Secrets Store CSI driver and
+// Microsoft Entra ID authentication with Azure RBAC for Kubernetes: no local
+// accounts, so every kubectl call (people and CI) is an audited Entra identity
+// and can be granted per role instead of sharing a cluster-admin certificate.
 
 @description('Azure region.')
 param location string
@@ -50,7 +53,12 @@ resource cluster 'Microsoft.ContainerService/managedClusters@2025-10-01' = {
     kubernetesVersion: empty(kubernetesVersion) ? null : kubernetesVersion
     dnsPrefix: 'aks-${namePrefix}'
     enableRBAC: true
-    disableLocalAccounts: false
+    disableLocalAccounts: true
+    aadProfile: {
+      managed: true
+      enableAzureRBAC: true
+      tenantID: subscription().tenantId
+    }
     agentPoolProfiles: [
       {
         name: 'system'
