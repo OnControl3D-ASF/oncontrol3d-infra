@@ -164,6 +164,28 @@ jobs:
               print(f"- **{key}**: `{item['value']}`")
           EOF
 
+      # Platform responsibility: the application pipelines (clinical, imaging) only hold
+      # "AKS RBAC Admin" and cannot create namespaces. Pod Security Admission "restricted"
+      # rejects pods that run as root, escalate privileges or keep Linux capabilities.
+      - uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.2.22
+
+      - name: Prepare Kubernetes namespace
+        run: |
+          AKS=$(python3 -c "import json; print(json.load(open('outputs.json'))['aksName']['value'])")
+          if [ -z "$AKS" ]; then
+            echo "AKS not deployed (deployAks=false): nothing to prepare."
+            exit 0
+          fi
+          az aks get-credentials -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$AKS" --overwrite-existing
+          kubelogin convert-kubeconfig -l azurecli
+          kubectl create namespace oncontrol --dry-run=client -o yaml | kubectl apply -f -
+          kubectl label namespace oncontrol \
+            pod-security.kubernetes.io/enforce=restricted \
+            pod-security.kubernetes.io/warn=restricted --overwrite
+          echo "- Namespace \`oncontrol\` ready (Pod Security: restricted)" >> "$GITHUB_STEP_SUMMARY"
+
   deploy-prod:
     name: Deploy prod
     if: github.event_name != 'pull_request'
@@ -201,3 +223,25 @@ jobs:
           for key, item in outputs.items():
               print(f"- **{key}**: `{item['value']}`")
           EOF
+
+      # Platform responsibility: the application pipelines (clinical, imaging) only hold
+      # "AKS RBAC Admin" and cannot create namespaces. Pod Security Admission "restricted"
+      # rejects pods that run as root, escalate privileges or keep Linux capabilities.
+      - uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.2.22
+
+      - name: Prepare Kubernetes namespace
+        run: |
+          AKS=$(python3 -c "import json; print(json.load(open('outputs.json'))['aksName']['value'])")
+          if [ -z "$AKS" ]; then
+            echo "AKS not deployed (deployAks=false): nothing to prepare."
+            exit 0
+          fi
+          az aks get-credentials -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$AKS" --overwrite-existing
+          kubelogin convert-kubeconfig -l azurecli
+          kubectl create namespace oncontrol --dry-run=client -o yaml | kubectl apply -f -
+          kubectl label namespace oncontrol \
+            pod-security.kubernetes.io/enforce=restricted \
+            pod-security.kubernetes.io/warn=restricted --overwrite
+          echo "- Namespace \`oncontrol\` ready (Pod Security: restricted)" >> "$GITHUB_STEP_SUMMARY"
