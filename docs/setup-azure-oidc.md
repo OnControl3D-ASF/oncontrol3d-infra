@@ -123,3 +123,39 @@ done
 1. Abrir un PR que toque `bicep/`: el job **What-if (dev)** se loguea con OIDC y publica la tabla de cambios en el *job summary*.
 2. Al mergear a `main`: **Deploy dev** espera aprobación → aprobar → despliega. **Deploy prod** espera su propia aprobación.
 3. `az role assignment list --assignee <principalId> --all -o table`: cada identidad tiene solo `Contributor` y `Role Based Access Control Administrator` (condicionado) sobre su propio resource group.
+
+## 6. Identidades de los pipelines de aplicación (clinical, imaging) y acceso a AKS
+
+AKS usa **Entra ID + Azure RBAC** (sin cuentas locales): cada acceso es una identidad auditada con un rol.
+
+| Identidad (rg-oncontrol3d-cicd) | Federated subject | Roles sobre `rg-oncontrol3d-<env>` |
+|---|---|---|
+| `id-gh-iac-<env>` | `…/oncontrol3d-infra@<id>:environment:<env>` | Contributor, RBAC Administrator (condicionado), AKS Cluster User Role, **AKS RBAC Cluster Admin** (crea el namespace) |
+| `id-gh-clinical-<env>` | `…/oncontrol3d-backend-clinical@<id>:environment:<env>` | AcrPush, AKS Cluster User Role, **AKS RBAC Admin**; en dev también Website Contributor (deploy de la Function) |
+| `id-gh-imaging-<env>` | `…/oncontrol3d-imaging-service@<id>:environment:<env>` | AcrPush, AKS Cluster User Role, **AKS RBAC Admin** |
+| Usuario operador | — | AKS RBAC Cluster Admin |
+
+*AKS RBAC Admin* opera todo dentro de los namespaces (incluido el CRD `SecretProviderClass`) pero no puede
+crear namespaces ni cuotas. *AKS RBAC Writer* no alcanza porque no cubre CRDs.
+
+```bash
+ORG_ID=$(gh api orgs/OnControl3D-ASF --jq .id)
+for APP in clinical:oncontrol3d-backend-clinical imaging:oncontrol3d-imaging-service; do
+  NAME=${APP%%:*}; GHREPO=${APP##*:}; RID=$(gh api repos/OnControl3D-ASF/$GHREPO --jq .id)
+  for ENV in dev prod; do
+    az identity create -g rg-oncontrol3d-cicd -n "id-gh-$NAME-$ENV"
+    az identity federated-credential create -g rg-oncontrol3d-cicd --identity-name "id-gh-$NAME-$ENV" \
+      -n "github-environment-$ENV" --issuer https://token.actions.githubusercontent.com \
+      --subject "repo:OnControl3D-ASF@$ORG_ID/$GHREPO@$RID:environment:$ENV" --audiences api://AzureADTokenExchange
+    PID=$(az identity show -g rg-oncontrol3d-cicd -n "id-gh-$NAME-$ENV" --query principalId -o tsv)
+    SCOPE=$(az group show -n "rg-oncontrol3d-$ENV" --query id -o tsv)
+    for ROLE in AcrPush "Azure Kubernetes Service Cluster User Role" "Azure Kubernetes Service RBAC Admin"; do
+      az role assignment create --assignee-object-id "$PID" --assignee-principal-type ServicePrincipal --role "$ROLE" --scope "$SCOPE"
+    done
+  done
+done
+```
+
+Environments de GitHub en clinical e imaging: `dev` (solo desde `main`) y `prod` (solo desde tags `v*`),
+ambos con aprobación obligatoria y las variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+`AZURE_SUBSCRIPTION_ID` y `AZURE_RESOURCE_GROUP`.
