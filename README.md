@@ -33,7 +33,8 @@ into `main` (`main` still has unpinned dependencies).
 
 ```bash
 cd ~/Factories/oncontrol3d-infra
-printf 'DB_USERNAME=postgres\nDB_PASSWORD=postgres\nJWT_SECRET=%s\n' "$(openssl rand -hex 32)" > .env
+printf 'DB_USERNAME=postgres\nDB_PASSWORD=%s\nJWT_SECRET=%s\nAPP_DATA_SEEDING_ENABLED=true\nSEED_USER_PASSWORD=%s\n' \
+  "$(openssl rand -hex 16)" "$(openssl rand -hex 32)" "$(openssl rand -hex 12)" > .env
 docker compose up -d --build
 
 cd ../oncontrol3d-frontend
@@ -46,6 +47,10 @@ npm ci && npm run dev              # http://localhost:3000
 | Backend API     | http://localhost:8081/swagger-ui.html |
 | Imaging service | http://localhost:8001/docs            |
 | Orthanc         | http://localhost:8042                 |
+
+PostgreSQL and Orthanc are published on `127.0.0.1` only. If you already have a
+`postgres-data` volume, it keeps its previous password: reuse that value in `.env`
+or recreate the volume with `docker compose down -v`, which deletes its data.
 
 ## Demo: 3D lung reconstruction
 
@@ -60,7 +65,7 @@ npm ci && npm run dev              # http://localhost:3000
    Upload a single CT series. The imaging-service segments the series with the
    most slices, so a study that also contains PET series may pick the wrong one.
 
-2. Log in as `dr.garcia@hospital.com` / `password123` (seeded).
+2. Log in as `dr.garcia@hospital.com` with the `SEED_USER_PASSWORD` value from `.env` (seeded).
 3. Pacientes → Juan Pérez → **Tomografía 3D** → **Subir tomografía** → `ct-chest-wb.zip`.
 4. **Generar reconstrucción pulmonar 3D** (~30 s the first time, cached afterwards).
 
