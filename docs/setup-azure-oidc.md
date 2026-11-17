@@ -15,6 +15,10 @@ Se usan identidades administradas en lugar de *app registrations* porque:
 ```bash
 az login
 export REPO="OnControl3D-ASF/oncontrol3d-infra"
+# GitHub emite el subject OIDC con IDs inmutables de organización y repo
+# (repo:<org>@<org_id>/<repo>@<repo_id>:...): renombrar o recrear un repo con el
+# mismo nombre NO hereda la confianza. Las federated credentials deben usar ese formato.
+export SUBJECT_BASE="repo:OnControl3D-ASF@$(gh api orgs/OnControl3D-ASF --jq .id)/oncontrol3d-infra@$(gh api repos/$REPO --jq .id)"
 export LOCATION="brazilsouth"     # única región viable: ver "Restricciones" en docs/iac.md
 ```
 
@@ -42,15 +46,15 @@ for ENV in dev prod; do
   az identity federated-credential create -g rg-oncontrol3d-cicd --identity-name "id-gh-iac-$ENV" \
     -n "github-environment-$ENV" \
     --issuer https://token.actions.githubusercontent.com \
-    --subject "repo:$REPO:environment:$ENV" \
+    --subject "$SUBJECT_BASE:environment:$ENV" \
     --audiences api://AzureADTokenExchange
 done
 
-# Job what-if en PRs (sin environment): subject "pull_request", solo para la identidad de dev.
+# Job what-if en PRs (sin environment): subject ":pull_request", solo para la identidad de dev.
 az identity federated-credential create -g rg-oncontrol3d-cicd --identity-name id-gh-iac-dev \
   -n github-pull-request \
   --issuer https://token.actions.githubusercontent.com \
-  --subject "repo:$REPO:pull_request" \
+  --subject "$SUBJECT_BASE:pull_request" \
   --audiences api://AzureADTokenExchange
 ```
 
