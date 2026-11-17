@@ -1,4 +1,5 @@
 // prod: SLA-backed control plane, 2 nodes, Container Insights, longer backups and purge protection.
+// 2 x D2s_v4 = 4 vCPU = the whole DSv4 quota of the student subscription.
 // Secrets come from environment variables (GitHub environment "prod" secrets in CI).
 using '../main.bicep'
 
@@ -6,7 +7,8 @@ param environmentName = 'prod'
 
 param deployAks = true
 param aksTier = 'Standard'
-param aksNodeVmSize = 'Standard_D2as_v5'
+param aksNodeVmSize = 'Standard_D2s_v4'
+param aksOsDiskSizeGB = 64
 param aksNodeCount = 2
 param enableContainerInsights = true
 

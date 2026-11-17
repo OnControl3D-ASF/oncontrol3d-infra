@@ -32,7 +32,8 @@ param deployAks bool = true
   'Standard'
 ])
 param aksTier string = 'Free'
-param aksNodeVmSize string = 'Standard_D2as_v5'
+param aksNodeVmSize string = 'Standard_D2s_v4'
+param aksOsDiskSizeGB int = 32
 param aksNodeCount int = 1
 param enableContainerInsights bool = false
 
@@ -95,6 +96,7 @@ module aks 'modules/aks.bicep' = if (deployAks) {
     tier: aksTier
     nodeVmSize: aksNodeVmSize
     nodeCount: aksNodeCount
+    osDiskSizeGB: aksOsDiskSizeGB
     logAnalyticsWorkspaceId: enableContainerInsights ? monitoring.outputs.workspaceId : ''
     tags: tags
   }

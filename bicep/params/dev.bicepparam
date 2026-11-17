@@ -1,4 +1,8 @@
 // dev: smallest footprint that runs the whole platform within the Azure for Students budget.
+// Region comes from the resource group: brazilsouth. Azure for Students only allows 5 regions;
+// PostgreSQL is restricted in eastus/southcentralus, Flex Consumption is missing in chilecentral and
+// canadacentral only offers ARM64 (Bpsv2) sizes with quota. Standard_D2s_v4 (x86, 2 vCPU, 8 GB)
+// is enabled for the subscription with quota (DSv4 = 4 vCPU). See docs/iac.md.
 // Secrets come from environment variables (GitHub environment "dev" secrets in CI).
 using '../main.bicep'
 
@@ -6,7 +10,8 @@ param environmentName = 'dev'
 
 param deployAks = true
 param aksTier = 'Free'
-param aksNodeVmSize = 'Standard_D2as_v5'
+param aksNodeVmSize = 'Standard_D2s_v4'
+param aksOsDiskSizeGB = 32
 param aksNodeCount = 1
 param enableContainerInsights = false
 

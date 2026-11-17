@@ -24,6 +24,10 @@ param nodeVmSize string
 @maxValue(10)
 param nodeCount int = 1
 
+@description('Node OS disk size in GiB (32 GiB = P4 premium disk, about half the price of 64 GiB).')
+@minValue(30)
+param osDiskSizeGB int = 32
+
 @description('Log Analytics workspace for Container Insights (empty = disabled, saves ingestion cost).')
 param logAnalyticsWorkspaceId string = ''
 
@@ -55,7 +59,7 @@ resource cluster 'Microsoft.ContainerService/managedClusters@2025-10-01' = {
         vmSize: nodeVmSize
         osType: 'Linux'
         osSKU: 'AzureLinux'
-        osDiskSizeGB: 64
+        osDiskSizeGB: osDiskSizeGB
         type: 'VirtualMachineScaleSets'
       }
     ]
