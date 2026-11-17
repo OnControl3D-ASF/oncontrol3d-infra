@@ -91,6 +91,9 @@ este bloque en cada repositorio.
 | 2026-11-17 | Protección con 1 aprobación + checks en `clinical` e `infra`; `imaging` bajado de 2 a 1 aprobación |
 | Bloque 8 | Configuración final de este documento (code owners, último push, conversaciones, checks renombrados) |
 
-**Recomendación pendiente:** los 7 miembros de la organización son *admin* en los tres repositorios.
-Con `enforce_admins` nadie puede saltarse la protección, pero cualquier admin puede **desactivarla**. Lo
-recomendable es dejar 1–2 admins y dar *Write* (o *Maintain*) al resto. Requiere acuerdo del equipo.
+**Decisión del equipo — todos los miembros son *admin*:** los 7 miembros de la organización tienen rol
+*admin* en los tres repositorios, para que nadie quede bloqueado por falta de permisos durante el curso.
+`enforce_admins` garantiza que **nadie puede saltarse** las reglas al mergear; el riesgo aceptado es que
+un admin puede **modificar o desactivar** la protección desde la configuración del repositorio. Mitigación:
+este documento y `scripts/apply-branch-protection.sh` permiten detectar y restaurar la configuración, y los
+cambios de protección quedan registrados en el *audit log* de la organización.
