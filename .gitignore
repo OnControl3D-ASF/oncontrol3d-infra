@@ -1,2 +1,4 @@
 .env
 demo-data/
+
+/deploy/*.kubeconfig
