@@ -187,6 +187,7 @@ output keyVaultName string = keyVault.outputs.name
 output keyVaultUri string = keyVault.outputs.uri
 output postgresFqdn string = postgres.outputs.fqdn
 output postgresJdbcUrl string = postgres.outputs.jdbcUrl
+output postgresAdministratorLogin string = postgresAdministratorLogin
 output serviceBusNamespace string = serviceBus.outputs.fullyQualifiedNamespace
 output alertQueueName string = serviceBus.outputs.alertQueueName
 output functionAppName string = functionApp.outputs.name
