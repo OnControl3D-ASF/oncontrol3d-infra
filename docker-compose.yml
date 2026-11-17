@@ -14,9 +14,9 @@ services:
     environment:
       POSTGRES_DB: OnControlSem
       POSTGRES_USER: ${DB_USERNAME:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -34,7 +34,7 @@ services:
       # Local only: backend and imaging-service call Orthanc without credentials.
       ORTHANC__AUTHENTICATION_ENABLED: "false"
     ports:
-      - "8042:8042"
+      - "127.0.0.1:8042:8042"
     volumes:
       - orthanc-data:/var/lib/orthanc/db
 
@@ -58,8 +58,10 @@ services:
       PORT: "8081"
       DB_URL: jdbc:postgresql://postgres:5432/OnControlSem
       DB_USERNAME: ${DB_USERNAME:-postgres}
-      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      APP_DATA_SEEDING_ENABLED: ${APP_DATA_SEEDING_ENABLED:-false}
+      SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-}
       IMAGING_SERVICE_URL: http://imaging-service:8001
       ORTHANC_URL: http://orthanc:8042
     ports:
