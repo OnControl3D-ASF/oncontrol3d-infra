@@ -9,7 +9,7 @@ Fuente de verdad ejecutable: [`scripts/apply-branch-protection.sh`](../scripts/a
 |---|---|---|
 | Cambios solo por Pull Request | sí (no hay push directo) | Todo cambio pasa por revisión y por los checks |
 | Aprobaciones requeridas | **1** | Ningún autor mergea su propio código |
-| Revisión de *code owner* | **sí** (`.github/CODEOWNERS`) | La aprobación debe venir de un responsable del código |
+| Revisión de *code owner* | **sí** (`.github/CODEOWNERS`: los 7 miembros) | La aprobación debe venir de un miembro del equipo distinto del autor |
 | Aprobación posterior al último push | **sí** | Un commit agregado después de la aprobación exige una nueva |
 | Descartar aprobaciones antiguas | sí | Idem, para commits nuevos |
 | Conversaciones resueltas | sí | Ningún comentario de revisión queda sin responder |
