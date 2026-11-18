@@ -26,7 +26,7 @@ for name in ['postgres', 'orthanc', 'imaging-service']:
 services = [
  ('postgres','postgres:16-alpine',5432,env(dict(POSTGRES_DB='OnControlSem', POSTGRES_USER='postgres', PGDATA='/var/lib/postgresql/data/pgdata'))+[secret('POSTGRES_PASSWORD','DB_PASSWORD')],'/var/lib/postgresql/data','256Mi','512Mi',None),
  ('orthanc','orthancteam/orthanc:26.9.1',8042,env(dict(ORTHANC__NAME='OnControl3D', VOLVIEW_PLUGIN_ENABLED='true', DICOM_WEB_PLUGIN_ENABLED='true', ORTHANC__AUTHENTICATION_ENABLED='false')), '/var/lib/orthanc/db','256Mi','768Mi',None),
- ('imaging-service',f'{image_prefix}/imaging-service:{tag}',8001,env(dict(ORTHANC_URL='http://orthanc:8042',PUBLIC_BASE_URL='http://localhost:8080/imaging',VOLVIEW_URL='http://localhost:8080/volview/index.html')), '/app/storage','512Mi','3Gi','/health'),
+ ('imaging-service',f'{image_prefix}/imaging-service:{tag}',8001,env(dict(ORTHANC_URL='http://orthanc:8042',PUBLIC_BASE_URL='/imaging',VOLVIEW_URL='/volview/index.html')), '/app/storage','512Mi','3Gi','/health'),
  ('backend',f'{image_prefix}/backend:{tag}',8081,env(dict(PORT='8081',DB_URL='jdbc:postgresql://postgres:5432/OnControlSem',DB_USERNAME='postgres',ORTHANC_URL='http://orthanc:8042',IMAGING_SERVICE_URL='http://imaging-service:8001',JAVA_TOOL_OPTIONS='-XX:MaxRAMPercentage=65',APP_DATA_SEEDING_ENABLED='true'))+[secret('DB_PASSWORD','DB_PASSWORD'),secret('JWT_SECRET','JWT_SECRET')],None,'512Mi','1Gi','/health'),
  ('frontend',f'{image_prefix}/frontend:{tag}',3000,[],None,'256Mi','768Mi','/'),
  ('gateway','nginx:1.28-alpine',80,[],None,'32Mi','128Mi',None),
