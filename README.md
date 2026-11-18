@@ -74,3 +74,9 @@ or recreate the volume with `docker compose down -v`, which deletes its data.
 ```bash
 docker compose down -v             # drops DB, Orthanc studies and derived volumes
 ```
+
+## Demo en AKS
+
+Ver [deploy/README.md](deploy/README.md) para recrear desde cero el grupo Azure,
+ACR y AKS, publicar la app, compartir una URL HTTPS temporal y eliminar los
+recursos después de la demo.
