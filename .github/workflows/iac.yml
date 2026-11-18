@@ -1,0 +1,247 @@
+name: IaC
+
+# Bicep pipeline:
+#   PR   -> build + lint + build-params (dev, prod) + what-if against dev (no changes applied)
+#   main -> build + lint -> deploy dev (environment "dev") -> deploy prod (environment "prod",
+#           requires reviewer approval configured in Settings > Environments)
+# Authentication: OpenID Connect (azure/login + federated credentials). No client secrets.
+# Setup: docs/setup-azure-oidc.md
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "bicep/**"
+      - ".github/workflows/iac.yml"
+  push:
+    branches: [main]
+    paths:
+      - "bicep/**"
+      - ".github/workflows/iac.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never cancel an in-flight deployment: a half-applied ARM deployment is worse than a queued one.
+concurrency:
+  group: iac-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Build & lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Bicep
+        run: az bicep install && az bicep version
+
+      # bicep/bicepconfig.json turns the security rules (secrets in outputs/params,
+      # hardcoded admin names or URLs, unused params) into errors.
+      - name: Lint
+        run: az bicep lint --file bicep/main.bicep
+
+      - name: Build
+        run: az bicep build --file bicep/main.bicep --outdir build
+
+      # Placeholder values only prove the parameter files compile; they are never deployed.
+      - name: Build parameter files (dev, prod)
+        env:
+          DB_ADMIN_PASSWORD: ci-build-only-placeholder-not-a-secret
+          JWT_SECRET: ci-build-only-placeholder-not-a-secret-0123456789
+        run: |
+          for env in dev prod; do
+            az bicep build-params --file "bicep/params/$env.bicepparam" --outfile "build/$env.parameters.json"
+          done
+
+  what-if:
+    name: What-if (dev)
+    if: github.event_name == 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC token for azure/login
+    env:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID_DEV }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP_DEV }}
+    steps:
+      - name: Check Azure configuration
+        id: config
+        run: |
+          if [ -z "$AZURE_CLIENT_ID" ] || [ -z "$AZURE_TENANT_ID" ] || [ -z "$AZURE_SUBSCRIPTION_ID" ] || [ -z "$RESOURCE_GROUP" ]; then
+            echo "::warning::Azure OIDC variables are not configured; what-if skipped (see docs/setup-azure-oidc.md)."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.config.outputs.ready == 'true'
+
+      - uses: azure/login@v3
+        if: steps.config.outputs.ready == 'true'
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      # what-if needs values for the @secure() params; ARM never reveals secure values,
+      # so placeholders do not change the plan. Nothing is deployed here.
+      - name: What-if
+        if: steps.config.outputs.ready == 'true'
+        env:
+          DB_ADMIN_PASSWORD: whatif-placeholder-not-a-secret
+          JWT_SECRET: whatif-placeholder-not-a-secret-0123456789abcdef
+        run: |
+          az bicep install
+          az deployment group what-if \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file bicep/main.bicep \
+            --parameters bicep/params/dev.bicepparam \
+            --result-format FullResourcePayloads \
+            --no-pretty-print > whatif.json
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json, collections
+          changes = json.load(open("whatif.json")).get("changes", [])
+          counts = collections.Counter(c["changeType"] for c in changes)
+          print("### What-if against dev\n")
+          print("| Change | Count |\n|---|---|")
+          for kind, n in sorted(counts.items()):
+              print(f"| {kind} | {n} |")
+          print("\n<details><summary>Resources</summary>\n")
+          for c in changes:
+              print(f"- `{c['changeType']}` {c['resourceId'].split('/providers/')[-1]}")
+          print("\n</details>")
+          EOF
+
+      - name: Upload what-if result
+        if: steps.config.outputs.ready == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: whatif-dev
+          path: whatif.json
+
+  deploy-dev:
+    name: Deploy dev
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: dev
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy
+        env:
+          DB_ADMIN_PASSWORD: ${{ secrets.DB_ADMIN_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          az bicep install
+          az deployment group create \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "iac-${{ github.run_number }}" \
+            --template-file bicep/main.bicep \
+            --parameters bicep/params/dev.bicepparam \
+            --query properties.outputs -o json > outputs.json
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          outputs = json.load(open("outputs.json"))
+          print("### dev outputs\n")
+          for key, item in outputs.items():
+              print(f"- **{key}**: `{item['value']}`")
+          EOF
+
+      # Platform responsibility: the application pipelines (clinical, imaging) only hold
+      # "AKS RBAC Admin" and cannot create namespaces. Pod Security Admission "restricted"
+      # rejects pods that run as root, escalate privileges or keep Linux capabilities.
+      - uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.2.22
+
+      - name: Prepare Kubernetes namespace
+        run: |
+          AKS=$(python3 -c "import json; print(json.load(open('outputs.json'))['aksName']['value'])")
+          if [ -z "$AKS" ]; then
+            echo "AKS not deployed (deployAks=false): nothing to prepare."
+            exit 0
+          fi
+          az aks get-credentials -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$AKS" --overwrite-existing
+          kubelogin convert-kubeconfig -l azurecli
+          kubectl create namespace oncontrol --dry-run=client -o yaml | kubectl apply -f -
+          kubectl label namespace oncontrol \
+            pod-security.kubernetes.io/enforce=restricted \
+            pod-security.kubernetes.io/warn=restricted --overwrite
+          echo "- Namespace \`oncontrol\` ready (Pod Security: restricted)" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy-prod:
+    name: Deploy prod
+    if: github.event_name != 'pull_request'
+    needs: deploy-dev
+    runs-on: ubuntu-latest
+    environment: prod # protected: requires reviewer approval
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Deploy
+        env:
+          DB_ADMIN_PASSWORD: ${{ secrets.DB_ADMIN_PASSWORD }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: |
+          az bicep install
+          az deployment group create \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --name "iac-${{ github.run_number }}" \
+            --template-file bicep/main.bicep \
+            --parameters bicep/params/prod.bicepparam \
+            --query properties.outputs -o json > outputs.json
+          python3 - <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          outputs = json.load(open("outputs.json"))
+          print("### prod outputs\n")
+          for key, item in outputs.items():
+              print(f"- **{key}**: `{item['value']}`")
+          EOF
+
+      # Platform responsibility: the application pipelines (clinical, imaging) only hold
+      # "AKS RBAC Admin" and cannot create namespaces. Pod Security Admission "restricted"
+      # rejects pods that run as root, escalate privileges or keep Linux capabilities.
+      - uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.2.22
+
+      - name: Prepare Kubernetes namespace
+        run: |
+          AKS=$(python3 -c "import json; print(json.load(open('outputs.json'))['aksName']['value'])")
+          if [ -z "$AKS" ]; then
+            echo "AKS not deployed (deployAks=false): nothing to prepare."
+            exit 0
+          fi
+          az aks get-credentials -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$AKS" --overwrite-existing
+          kubelogin convert-kubeconfig -l azurecli
+          kubectl create namespace oncontrol --dry-run=client -o yaml | kubectl apply -f -
+          kubectl label namespace oncontrol \
+            pod-security.kubernetes.io/enforce=restricted \
+            pod-security.kubernetes.io/warn=restricted --overwrite
+          echo "- Namespace \`oncontrol\` ready (Pod Security: restricted)" >> "$GITHUB_STEP_SUMMARY"
