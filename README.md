@@ -84,3 +84,9 @@ and deploys on `main` behind environment approvals, authenticating to Azure with
 
 - Architecture, environments and cost: [docs/iac.md](docs/iac.md)
 - One-time Azure/GitHub setup (OIDC, environments, secrets): [docs/setup-azure-oidc.md](docs/setup-azure-oidc.md)
+
+## Demo en AKS
+
+Ver [deploy/README.md](deploy/README.md) para recrear desde cero el grupo Azure,
+ACR y AKS, publicar la app, compartir una URL HTTPS temporal y eliminar los
+recursos después de la demo.
