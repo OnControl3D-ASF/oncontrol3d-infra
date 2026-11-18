@@ -74,3 +74,13 @@ or recreate the volume with `docker compose down -v`, which deletes its data.
 ```bash
 docker compose down -v             # drops DB, Orthanc studies and derived volumes
 ```
+
+## Azure infrastructure (Bicep)
+
+`bicep/` defines the Azure environment as code: ACR, AKS, PostgreSQL Flexible Server,
+Service Bus, Function App + Storage, Application Insights and Key Vault, with `dev` and
+`prod` parameter files. The `IaC` workflow builds, lints and runs `what-if` on pull requests,
+and deploys on `main` behind environment approvals, authenticating to Azure with OIDC.
+
+- Architecture, environments and cost: [docs/iac.md](docs/iac.md)
+- One-time Azure/GitHub setup (OIDC, environments, secrets): [docs/setup-azure-oidc.md](docs/setup-azure-oidc.md)
