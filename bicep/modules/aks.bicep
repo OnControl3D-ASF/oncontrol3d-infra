@@ -69,11 +69,20 @@ resource cluster 'Microsoft.ContainerService/managedClusters@2025-10-01' = {
         osSKU: 'AzureLinux'
         osDiskSizeGB: osDiskSizeGB
         type: 'VirtualMachineScaleSets'
+        // Student quota = 4 vCPU = exactly 2 x D2s_v4: no surge node is possible, upgrade one node at a time.
+        upgradeSettings: {
+          maxSurge: '0'
+          maxUnavailable: '1'
+        }
       }
     ]
     networkProfile: {
       networkPlugin: 'azure'
       networkPluginMode: 'overlay'
+      // Cilium dataplane + policy engine (NetworkPolicy enforcement). Set at cluster creation:
+      // it cannot be reverted to the default dataplane without recreating the cluster.
+      networkDataplane: 'cilium'
+      networkPolicy: 'cilium'
       loadBalancerSku: 'standard'
     }
     oidcIssuerProfile: {
