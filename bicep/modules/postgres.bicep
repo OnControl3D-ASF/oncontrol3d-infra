@@ -16,6 +16,9 @@ param administratorPassword string
 @description('Database created for the Clinical Service.')
 param databaseName string = 'OnControlSem'
 
+@description('Extra databases on the same server (e.g. auth service, prod namespace). Free on a flexible server.')
+param additionalDatabases array = []
+
 @description('Compute SKU, e.g. Standard_B1ms (Burstable).')
 param skuName string = 'Standard_B1ms'
 
@@ -74,6 +77,20 @@ resource database 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2025-08-0
     collation: 'en_US.utf8'
   }
 }
+
+// ARM rejects concurrent database writes on one server: create them one at a time.
+@batchSize(1)
+resource extraDatabases 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2025-08-01' = [for dbName in additionalDatabases: {
+  parent: server
+  name: dbName
+  properties: {
+    charset: 'UTF8'
+    collation: 'en_US.utf8'
+  }
+  dependsOn: [
+    database
+  ]
+}]
 
 // 0.0.0.0 - 0.0.0.0 = "allow Azure services" (AKS egress). TLS is enforced by default
 // (require_secure_transport=on). Private networking is the production follow-up

@@ -26,3 +26,5 @@ param logDailyQuotaGb = 5
 
 param postgresAdministratorPassword = readEnvironmentVariable('DB_ADMIN_PASSWORD', '')
 param jwtSecret = readEnvironmentVariable('JWT_SECRET', '')
+param authInternalToken = readEnvironmentVariable('AUTH_INTERNAL_TOKEN', '')
+param seedUserPassword = readEnvironmentVariable('SEED_USER_PASSWORD', '')

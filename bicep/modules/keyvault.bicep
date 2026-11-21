@@ -20,6 +20,17 @@ param dbPassword string
 @description('JWT signing key for the Clinical Service (JWT_SECRET, >= 32 bytes).')
 param jwtSecret string
 
+@secure()
+@minLength(32)
+@description('Shared secret of the auth internal API (AUTH_INTERNAL_TOKEN, >= 32 bytes): auth verifies, clinical calls.')
+param authInternalToken string
+
+@secure()
+@minLength(16)
+@maxLength(72)
+@description('Password of the seeded demo accounts (SEED_USER_PASSWORD, 16-72 bytes: bcrypt input limit).')
+param seedUserPassword string
+
 @description('Principal IDs granted "Key Vault Secrets User" (read secrets).')
 param secretReaderPrincipalIds array = []
 
@@ -60,6 +71,24 @@ resource jwtSecretSecret 'Microsoft.KeyVault/vaults/secrets@2025-05-01' = {
   properties: {
     value: jwtSecret
     contentType: 'JWT signing key (JWT_SECRET)'
+  }
+}
+
+resource authInternalTokenSecret 'Microsoft.KeyVault/vaults/secrets@2025-05-01' = {
+  parent: vault
+  name: 'auth-internal-token'
+  properties: {
+    value: authInternalToken
+    contentType: 'Auth internal API token (AUTH_INTERNAL_TOKEN)'
+  }
+}
+
+resource seedUserPasswordSecret 'Microsoft.KeyVault/vaults/secrets@2025-05-01' = {
+  parent: vault
+  name: 'seed-user-password'
+  properties: {
+    value: seedUserPassword
+    contentType: 'Seeded demo accounts password (SEED_USER_PASSWORD)'
   }
 }
 

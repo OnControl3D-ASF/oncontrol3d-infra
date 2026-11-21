@@ -69,11 +69,22 @@ resource cluster 'Microsoft.ContainerService/managedClusters@2025-10-01' = {
         osSKU: 'AzureLinux'
         osDiskSizeGB: osDiskSizeGB
         type: 'VirtualMachineScaleSets'
+        // System pools only accept maxUnavailable 0 (AKS preflight), so upgrades must surge one node.
+        // Student quota = 4 vCPU = exactly 2 x D2s_v4: the surge node does not fit, so a version or
+        // node-image upgrade fails on quota. Do not upgrade the cluster during the demo window.
+        upgradeSettings: {
+          maxSurge: '1'
+          maxUnavailable: '0'
+        }
       }
     ]
     networkProfile: {
       networkPlugin: 'azure'
       networkPluginMode: 'overlay'
+      // Cilium dataplane + policy engine (NetworkPolicy enforcement). Set at cluster creation:
+      // it cannot be reverted to the default dataplane without recreating the cluster.
+      networkDataplane: 'cilium'
+      networkPolicy: 'cilium'
       loadBalancerSku: 'standard'
     }
     oidcIssuerProfile: {

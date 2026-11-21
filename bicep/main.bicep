@@ -1,12 +1,12 @@
 // OnControl3D - Azure infrastructure (resource group scope).
 //
-//   ACR ──AcrPull──▶ AKS kubelet         Key Vault ◀──Secrets User── clinical workload identity
+//   ACR ──AcrPull──▶ AKS kubelet         Key Vault ◀──Secrets User── clinical + auth workload identities
 //   AKS (OIDC + workload identity) ──▶ clinical identity ──Data Sender──▶ Service Bus queue
 //   Function App (Flex, Java 21) ◀──Data Receiver── Service Bus queue      PostgreSQL Flexible 16
 //   Log Analytics + Application Insights (telemetry for AKS and the Function)
 //
 // Deploy:   az deployment group create -g <rg> -f bicep/main.bicep -p bicep/params/<env>.bicepparam
-// Secrets:  DB_ADMIN_PASSWORD and JWT_SECRET are read from environment variables by the
+// Secrets:  DB_ADMIN_PASSWORD, JWT_SECRET, AUTH_INTERNAL_TOKEN and SEED_USER_PASSWORD are read from environment variables by the
 //           .bicepparam files (GitHub environment secrets in CI). They never live in the repo.
 
 targetScope = 'resourceGroup'
@@ -37,9 +37,20 @@ param aksOsDiskSizeGB int = 32
 param aksNodeCount int = 1
 param enableContainerInsights bool = false
 
-@description('Kubernetes namespace / service account used by the Clinical Service pods.')
-param clinicalNamespace string = 'oncontrol'
+@description('Kubernetes namespaces whose service accounts get a federated credential (dev + optional prod namespace).')
+param appNamespaces array = [
+  'oncontrol'
+  'oncontrol-prod'
+]
 param clinicalServiceAccount string = 'clinical'
+param authServiceAccount string = 'auth'
+
+@description('Extra databases created on the PostgreSQL server (auth service dev/prod, clinical prod namespace).')
+param additionalDatabases array = [
+  'oncontrol_auth'
+  'oncontrol_prod'
+  'oncontrol_auth_prod'
+]
 
 // --- Data / messaging / secrets -------------------------------------------------
 param acrSku string = 'Basic'
@@ -59,6 +70,17 @@ param postgresAdministratorPassword string
 @minLength(32)
 @description('JWT signing key for the Clinical Service, >= 32 bytes (env JWT_SECRET in CI).')
 param jwtSecret string
+
+@secure()
+@minLength(32)
+@description('Shared secret for the auth internal API (X-Internal-Token), >= 32 bytes (env AUTH_INTERNAL_TOKEN in CI).')
+param authInternalToken string
+
+@secure()
+@minLength(16)
+@maxLength(72)
+@description('Password of the seeded demo accounts, 16-72 bytes (bcrypt limit) (env SEED_USER_PASSWORD in CI).')
+param seedUserPassword string
 
 param serviceBusSku string = 'Basic'
 param keyVaultPurgeProtection bool = false
@@ -119,8 +141,20 @@ module clinicalIdentity 'modules/workload-identity.bicep' = if (deployAks) {
     location: location
     name: 'id-${namePrefix}-clinical'
     oidcIssuerUrl: deployAks ? aks!.outputs.oidcIssuerUrl : ''
-    serviceAccountNamespace: clinicalNamespace
+    serviceAccountNamespaces: appNamespaces
     serviceAccountName: clinicalServiceAccount
+    tags: tags
+  }
+}
+
+module authIdentity 'modules/workload-identity.bicep' = if (deployAks) {
+  name: 'auth-identity'
+  params: {
+    location: location
+    name: 'id-${namePrefix}-auth'
+    oidcIssuerUrl: deployAks ? aks!.outputs.oidcIssuerUrl : ''
+    serviceAccountNamespaces: appNamespaces
+    serviceAccountName: authServiceAccount
     tags: tags
   }
 }
@@ -132,6 +166,7 @@ module postgres 'modules/postgres.bicep' = {
     name: 'psql-${namePrefix}-${suffix}'
     administratorLogin: postgresAdministratorLogin
     administratorPassword: postgresAdministratorPassword
+    additionalDatabases: additionalDatabases
     skuName: postgresSkuName
     skuTier: postgresSkuTier
     storageSizeGB: postgresStorageGB
@@ -149,7 +184,9 @@ module keyVault 'modules/keyvault.bicep' = {
     enablePurgeProtection: keyVaultPurgeProtection
     dbPassword: postgresAdministratorPassword
     jwtSecret: jwtSecret
-    secretReaderPrincipalIds: deployAks ? [clinicalIdentity!.outputs.principalId] : []
+    authInternalToken: authInternalToken
+    seedUserPassword: seedUserPassword
+    secretReaderPrincipalIds: deployAks ? [clinicalIdentity!.outputs.principalId, authIdentity!.outputs.principalId] : []
     tags: tags
   }
 }
@@ -183,6 +220,7 @@ module serviceBus 'modules/servicebus.bicep' = {
 output acrLoginServer string = deployAks ? acr!.outputs.loginServer : ''
 output aksName string = deployAks ? aks!.outputs.name : ''
 output clinicalWorkloadIdentityClientId string = deployAks ? clinicalIdentity!.outputs.clientId : ''
+output authWorkloadIdentityClientId string = deployAks ? authIdentity!.outputs.clientId : ''
 output keyVaultName string = keyVault.outputs.name
 output keyVaultUri string = keyVault.outputs.uri
 output postgresFqdn string = postgres.outputs.fqdn

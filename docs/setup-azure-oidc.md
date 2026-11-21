@@ -124,7 +124,7 @@ done
 2. Al mergear a `main`: **Deploy dev** espera aprobación → aprobar → despliega. **Deploy prod** espera su propia aprobación.
 3. `az role assignment list --assignee <principalId> --all -o table`: cada identidad tiene solo `Contributor` y `Role Based Access Control Administrator` (condicionado) sobre su propio resource group.
 
-## 6. Identidades de los pipelines de aplicación (clinical, imaging) y acceso a AKS
+## 6. Identidades de los pipelines de aplicación (clinical, imaging, auth, frontend) y acceso a AKS
 
 AKS usa **Entra ID + Azure RBAC** (sin cuentas locales): cada acceso es una identidad auditada con un rol.
 
@@ -132,6 +132,8 @@ AKS usa **Entra ID + Azure RBAC** (sin cuentas locales): cada acceso es una iden
 |---|---|---|
 | `id-gh-iac-<env>` | `…/oncontrol3d-infra@<id>:environment:<env>` | Contributor, RBAC Administrator (condicionado), AKS Cluster User Role, **AKS RBAC Cluster Admin** (crea el namespace) |
 | `id-gh-clinical-<env>` | `…/oncontrol3d-backend-clinical@<id>:environment:<env>` | AcrPush, AKS Cluster User Role, **AKS RBAC Admin**; en dev también Website Contributor (deploy de la Function) |
+| `id-gh-auth-<env>` | `…/oncontrol3d-auth-service@<id>:environment:<env>` | AcrPush, AKS Cluster User Role, **AKS RBAC Admin** |
+| `id-gh-frontend-<env>` | `…/oncontrol3d-frontend@<id>:environment:<env>` | AcrPush, AKS Cluster User Role, **AKS RBAC Admin** |
 | `id-gh-imaging-<env>` | `…/oncontrol3d-imaging-service@<id>:environment:<env>` | AcrPush, AKS Cluster User Role, **AKS RBAC Admin** |
 | Usuario operador | — | AKS RBAC Cluster Admin |
 
@@ -140,7 +142,8 @@ crear namespaces ni cuotas. *AKS RBAC Writer* no alcanza porque no cubre CRDs.
 
 ```bash
 ORG_ID=$(gh api orgs/OnControl3D-ASF --jq .id)
-for APP in clinical:oncontrol3d-backend-clinical imaging:oncontrol3d-imaging-service; do
+for APP in clinical:oncontrol3d-backend-clinical imaging:oncontrol3d-imaging-service \
+           auth:oncontrol3d-auth-service frontend:oncontrol3d-frontend; do
   NAME=${APP%%:*}; GHREPO=${APP##*:}; RID=$(gh api repos/OnControl3D-ASF/$GHREPO --jq .id)
   for ENV in dev prod; do
     az identity create -g rg-oncontrol3d-cicd -n "id-gh-$NAME-$ENV"
@@ -156,6 +159,18 @@ for APP in clinical:oncontrol3d-backend-clinical imaging:oncontrol3d-imaging-ser
 done
 ```
 
-Environments de GitHub en clinical e imaging: `dev` (solo desde `main`) y `prod` (solo desde tags `v*`),
+Environments de GitHub en clinical, imaging, auth y frontend: `dev` (solo desde `main`) y `prod` (solo desde tags `v*`),
 ambos con aprobación obligatoria y las variables `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
 `AZURE_SUBSCRIPTION_ID` y `AZURE_RESOURCE_GROUP`.
+
+### Secretos del environment de infra (antes del primer despliegue con auth)
+
+`iac.yml` lee `AUTH_INTERNAL_TOKEN` y `SEED_USER_PASSWORD` del environment `dev` de este repo (junto con `JWT_SECRET` y
+`DB_ADMIN_PASSWORD`); Bicep los escribe en Key Vault. Sin ellos el despliegue falla al compilar los params.
+
+```bash
+R=OnControl3D-ASF/oncontrol3d-infra
+openssl rand -base64 48 | tr -d '\n' | gh secret set AUTH_INTERNAL_TOKEN --env dev -R "$R"
+SEED=$(openssl rand -base64 18); echo "demo password: $SEED"   # guardar en un gestor de contraseñas
+printf %s "$SEED" | gh secret set SEED_USER_PASSWORD --env dev -R "$R"; unset SEED
+```
