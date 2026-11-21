@@ -58,8 +58,9 @@ Región: **brazilsouth** (la toma de su resource group). Ver por qué en la secc
 
 - **Cilium** (`networkDataplane` y `networkPolicy` = `cilium`): se fija al crear el cluster y es **irreversible**
   (volver al dataplane por defecto exige recrear el cluster). Sin NetworkPolicies aplicadas es inocuo.
-- **2 nodos** con `upgradeSettings {maxSurge: 0, maxUnavailable: 1}`: la cuota DSv4 (4 vCPU) no admite un nodo extra
-  durante upgrades, se actualiza de a un nodo.
+- **2 nodos** con `upgradeSettings {maxSurge: 1, maxUnavailable: 0}`: AKS solo acepta `maxUnavailable: 0` en pools
+  de sistema. Como la cuota DSv4 (4 vCPU) no admite el nodo extra, un upgrade de versión o de imagen falla por cuota:
+  **no actualizar el cluster durante la ventana de la demo**.
 - **Bases de datos adicionales** en el mismo servidor PostgreSQL (`additionalDatabases`, gratis): `oncontrol_auth`,
   `oncontrol_prod`, `oncontrol_auth_prod`. Mismo login administrador para todas (riesgo documentado; roles por servicio
   quedan para después de TB4).
