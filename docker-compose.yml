@@ -1,9 +1,10 @@
-# OnControl 3D — local stack (PACS + backend + imaging).
+# OnControl 3D — local stack (PACS + backend + auth + imaging).
 # The frontend runs with `npm run dev`; its dev rewrites proxy /api, /orthanc
 # and /volview to the ports published here.
 #
 # Expects sibling checkouts:
 #   ../oncontrol3d-backend-clinical
+#   ../oncontrol3d-auth-service
 #   ../oncontrol3d-imaging-service
 
 name: oncontrol3d
@@ -19,6 +20,8 @@ services:
       - "127.0.0.1:5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # Creates the oncontrol_auth database (fresh volume only).
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-postgres} -d OnControlSem"]
       interval: 5s
@@ -52,6 +55,28 @@ services:
     depends_on:
       - orthanc
 
+  auth-service:
+    build: ../oncontrol3d-auth-service
+    environment:
+      PORT: "8082"
+      DB_URL: jdbc:postgresql://postgres:5432/oncontrol_auth
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      # Same secret as backend: auth signs tokens, clinical verifies them.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      AUTH_INTERNAL_TOKEN: ${AUTH_INTERNAL_TOKEN:?set AUTH_INTERNAL_TOKEN in .env}
+    ports:
+      - "127.0.0.1:8082:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8082/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
   backend:
     build: ../oncontrol3d-backend-clinical
     environment:
@@ -64,10 +89,16 @@ services:
       SEED_USER_PASSWORD: ${SEED_USER_PASSWORD:-}
       IMAGING_SERVICE_URL: http://imaging-service:8001
       ORTHANC_URL: http://orthanc:8042
+      AUTH_SERVICE_URL: http://auth-service:8082
+      AUTH_INTERNAL_TOKEN: ${AUTH_INTERNAL_TOKEN:?set AUTH_INTERNAL_TOKEN in .env}
+      # Turn on only once auth-service is healthy (it is a depends_on below).
+      AUTH_PROVISIONING_ENABLED: ${AUTH_PROVISIONING_ENABLED:-false}
     ports:
       - "8081:8081"
     depends_on:
       postgres:
+        condition: service_healthy
+      auth-service:
         condition: service_healthy
       orthanc:
         condition: service_started

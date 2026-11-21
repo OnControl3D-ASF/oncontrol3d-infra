@@ -1,6 +1,6 @@
 # oncontrol3d-infra
 
-Local stack for OnControl 3D: PostgreSQL, Orthanc (PACS + VolView), imaging-service and backend.
+Local stack for OnControl 3D: PostgreSQL, Orthanc (PACS + VolView), imaging-service, auth-service and backend.
 
 ## Layout
 
@@ -10,6 +10,7 @@ Clone the service repos as siblings of this one:
 Factories/
 ├── oncontrol3d-infra/             (this repo)
 ├── oncontrol3d-backend-clinical/
+├── oncontrol3d-auth-service/
 ├── oncontrol3d-imaging-service/
 └── oncontrol3d-frontend/
 ```
@@ -33,8 +34,8 @@ into `main` (`main` still has unpinned dependencies).
 
 ```bash
 cd ~/Factories/oncontrol3d-infra
-printf 'DB_USERNAME=postgres\nDB_PASSWORD=%s\nJWT_SECRET=%s\nAPP_DATA_SEEDING_ENABLED=true\nSEED_USER_PASSWORD=%s\n' \
-  "$(openssl rand -hex 16)" "$(openssl rand -hex 32)" "$(openssl rand -hex 12)" > .env
+printf 'DB_USERNAME=postgres\nDB_PASSWORD=%s\nJWT_SECRET=%s\nAUTH_INTERNAL_TOKEN=%s\nAPP_DATA_SEEDING_ENABLED=true\nSEED_USER_PASSWORD=%s\n' \
+  "$(openssl rand -hex 16)" "$(openssl rand -base64 48 | tr -d '\n')" "$(openssl rand -base64 48 | tr -d '\n')" "$(openssl rand -hex 12)" > .env
 docker compose up -d --build
 
 cd ../oncontrol3d-frontend
@@ -45,12 +46,47 @@ npm ci && npm run dev              # http://localhost:3000
 | --------------- | ------------------------------------- |
 | Frontend        | http://localhost:3000                 |
 | Backend API     | http://localhost:8081/swagger-ui.html |
+| Auth service    | http://localhost:8082/health          |
 | Imaging service | http://localhost:8001/docs            |
 | Orthanc         | http://localhost:8042                 |
 
 PostgreSQL and Orthanc are published on `127.0.0.1` only. If you already have a
 `postgres-data` volume, it keeps its previous password: reuse that value in `.env`
 or recreate the volume with `docker compose down -v`, which deletes its data.
+
+## Auth service
+
+`auth-service` (sibling repo `oncontrol3d-auth-service`, port 8082) is the identity
+provider: login, JWT issuance, audit log and internal account provisioning. It uses the
+same PostgreSQL server as the backend but its own database `oncontrol_auth`, created by
+`postgres/init/10-auth-db.sql`.
+
+| Variable                    | Used by           | Notes |
+| --------------------------- | ----------------- | ----- |
+| `JWT_SECRET`                | backend + auth    | MUST be identical in both; at least 32 bytes. Generate: `openssl rand -base64 48` |
+| `AUTH_INTERNAL_TOKEN`       | backend + auth    | Shared token for `/internal/**` (provisioning); at least 32 bytes. Generate: `openssl rand -base64 48` |
+| `AUTH_PROVISIONING_ENABLED` | backend           | Default `false`. Set `true` only when auth-service is healthy: clinical then creates credentials in auth |
+| `AUTH_SERVICE_URL`          | backend           | Fixed by compose: `http://auth-service:8082` |
+
+Never commit real values: `.env` is git-ignored. If your existing `.env` predates this
+change, append `AUTH_INTERNAL_TOKEN` (compose refuses to start without it).
+
+DB reset is REQUIRED: the init script only runs on a fresh `postgres-data` volume, so
+run `docker compose down -v` before the first `up` with auth-service (and again when
+the clinical service drops its password columns, change C3b). To keep an existing
+volume instead, create the database once:
+`docker compose exec postgres psql -U postgres -c 'CREATE DATABASE oncontrol_auth'`.
+
+Verify after `docker compose up -d --build`:
+
+```bash
+docker compose ps                                  # auth-service "healthy"
+docker compose exec postgres psql -U postgres -lqt | rg oncontrol_auth
+curl -s http://localhost:8082/health
+```
+
+To route the frontend login through auth, set `AUTH_ORIGIN=http://localhost:8082` in the
+frontend `.env.local` (frontend change F1); unset it to fall back to the backend.
 
 ## Demo: 3D lung reconstruction
 
