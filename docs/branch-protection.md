@@ -1,9 +1,9 @@
 # Protección de la rama `main`
 
-Aplica a `oncontrol3d-backend-clinical`, `oncontrol3d-imaging-service` y `oncontrol3d-infra`.
+Aplica a `oncontrol3d-backend-clinical`, `oncontrol3d-auth-service`, `oncontrol3d-imaging-service` y `oncontrol3d-infra`.
 Fuente de verdad ejecutable: [`scripts/apply-branch-protection.sh`](../scripts/apply-branch-protection.sh).
 
-## Reglas (los tres repositorios)
+## Reglas (todos los repositorios)
 
 | Regla | Valor | Por qué |
 |---|---|---|
@@ -19,15 +19,15 @@ Fuente de verdad ejecutable: [`scripts/apply-branch-protection.sh`](../scripts/a
 
 ## Checks obligatorios
 
-| Requisito de la rúbrica | Clinical Service | Imaging Service | Infra |
-|---|---|---|---|
-| build + tests | `Build, test & quality gate` (Maven, 207 unitarias, 25 BDD, ITs Testcontainers) | `Build, lint & test` (ruff, 92 pruebas) | — |
-| quality gate | `Build, test & quality gate` (JaCoCo ≥ 70 %, SonarCloud con `qualitygate.wait`) | `Build, lint & test` (cobertura, SonarCloud) | — |
-| sast | `SAST (Semgrep)` | `SAST (Semgrep)` | — |
-| sca | `Dependency scan (Trivy)` | `Dependency scan (Trivy)` | — |
-| container | `Image scan (Trivy)` | `Image scan (Trivy)` | — |
-| secretos | `Secret scan (gitleaks)` | `Secret scan (gitleaks)` | `gitleaks` |
-| despliegue | `Validate Kubernetes manifests` | `Validate Kubernetes manifests` | — |
+| Requisito de la rúbrica | Clinical Service | Auth Service | Imaging Service | Infra |
+|---|---|---|---|---|
+| build + tests | `Build, test & quality gate` (Maven, 207 unitarias, 25 BDD, ITs Testcontainers) | `Build, test & coverage gate` (Maven, 73 pruebas, ITs Testcontainers) | `Build, lint & test` (ruff, 92 pruebas) | — |
+| quality gate | `Build, test & quality gate` (JaCoCo ≥ 70 %, SonarCloud con `qualitygate.wait`) | `Build, test & coverage gate` (JaCoCo ≥ 70 %) | `Build, lint & test` (cobertura, SonarCloud) | — |
+| sast | `SAST (Semgrep)` | `SAST (Semgrep)` | `SAST (Semgrep)` | — |
+| sca | `Dependency scan (Trivy)` | `Dependency scan (Trivy)` | `Dependency scan (Trivy)` | — |
+| container | `Image scan (Trivy)` | `Image scan (Trivy)` | `Image scan (Trivy)` | — |
+| secretos | `Secret scan (gitleaks)` | `Secret scan (gitleaks)` | `Secret scan (gitleaks)` | `gitleaks` |
+| despliegue | `Validate Kubernetes manifests` | — (manifiestos con el track de AKS) | `Validate Kubernetes manifests` | — |
 
 En infra, los checks de IaC (`Build & lint`, `What-if (dev)`) y de imágenes de terceros tienen filtros
 por ruta: si fueran obligatorios, un PR que no toca `bicep/` quedaría bloqueado esperando un check que
@@ -79,6 +79,7 @@ para siempre. Los nombres nuevos (`SAST (Semgrep)`, `Image scan (Trivy)`, …) l
 1. **clinical:** mergear #6 → `scripts/apply-branch-protection.sh clinical` → mergear #7 (Bloque 7) y #8 (este bloque).
 2. **imaging:** mergear #4 → #5 → `scripts/apply-branch-protection.sh imaging` → mergear #6 (Bloque 7) y el PR de este bloque.
 3. **infra:** se puede aplicar en cualquier momento (no cambia nombres de checks).
+4. **auth:** los checks ya reportan en el PR #1, así que se aplica antes de mergearlo. CODEOWNERS llega a `main` con ese PR.
 
 `require_code_owner_reviews` exige que `.github/CODEOWNERS` ya esté en `main`: se aplica junto con el PR de
 este bloque en cada repositorio.
@@ -90,6 +91,7 @@ este bloque en cada repositorio.
 | Antes del Tercer Avance | Solo `imaging` protegía `main` (2 aprobaciones). `clinical` e `infra` sin protección: **los PRs de los Bloques 1–4 se mergearon sin revisión** |
 | 2026-11-17 | Protección con 1 aprobación + checks en `clinical` e `infra`; `imaging` bajado de 2 a 1 aprobación |
 | Bloque 8 | Configuración final de este documento (code owners, último push, conversaciones, checks renombrados) |
+| 2026-11-21 | Se suma `oncontrol3d-auth-service` (extracción del Auth Service) con las mismas reglas |
 
 **Decisión del equipo — todos los miembros son *admin*:** los 7 miembros de la organización tienen rol
 *admin* en los tres repositorios, para que nadie quede bloqueado por falta de permisos durante el curso.
