@@ -9,6 +9,8 @@
 #   9 (default-deny NetworkPolicy) is skipped until T2-7 and is not part of either level.
 #
 # Rate-limit checks run last because they exhaust the per-IP buckets of this machine.
+# SMOKE_STAGING_CERT=1: the Certificate still comes from Let's Encrypt STAGING (not publicly trusted). Check 2 is skipped
+# and verification is relaxed for the other checks. Never set it once the production issuer is active.
 # Test hooks (used by test/smoke-selftest.sh): SMOKE_HTTP_BASE, SMOKE_HTTPS_BASE, SMOKE_CACERT, SMOKE_RATE_PAUSE.
 set -uo pipefail
 
@@ -19,6 +21,9 @@ case "$level" in platform | full) ;; *) echo "unknown level '$level' (platform|f
 http_base=${SMOKE_HTTP_BASE:-http://$host}
 https_base=${SMOKE_HTTPS_BASE:-https://$host}
 cacert=${SMOKE_CACERT:-}
+staging=${SMOKE_STAGING_CERT:-0}
+insecure=()
+[ "$staging" = 1 ] && insecure=(-k)
 rate_pause=${SMOKE_RATE_PAUSE:-6}
 zero_id=00000000-00000000-00000000-00000000-00000000
 
@@ -26,7 +31,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 failures=0
 
-c() { curl -sS --max-time 30 ${cacert:+--cacert "$cacert"} "$@"; }
+c() { curl -sS --max-time 30 ${cacert:+--cacert "$cacert"} "${insecure[@]}" "$@"; }
 pass() { echo "PASS check $1: $2"; }
 fail() { echo "FAIL check $1: $2"; failures=$((failures + 1)); }
 
@@ -46,6 +51,7 @@ check_http_redirect() {
 }
 
 check_tls() {
+  if [ "$staging" = 1 ]; then echo "SKIP check 2: staging certificate (SMOKE_STAGING_CERT=1), chain not verified"; return; fi
   # Any HTTP status is fine (Traefik answers 503 while a backend is missing); what matters is that
   # curl completed the handshake with certificate verification ON.
   local rc=0
@@ -61,7 +67,7 @@ check_volview() {
 check_volview_rate_limit() {
   # rl-volview is 30/s with burst 100: a burst above 100 requests must produce 429s.
   local n
-  n=$(seq 250 | xargs -P 25 -I{} curl -s -o /dev/null -w '%{http_code}\n' ${cacert:+--cacert "$cacert"} "$https_base/volview/index.html" | rg -c '^429$' || true)
+  n=$(seq 250 | xargs -P 25 -I{} curl -s -o /dev/null -w '%{http_code}\n' ${cacert:+--cacert "$cacert"} "${insecure[@]}" "$https_base/volview/index.html" | rg -c '^429$' || true)
   if [ "${n:-0}" -ge 1 ]; then pass 7 "250 GETs /volview/ -> $n x 429"; else fail 7 "no 429 in 250 rapid GETs to /volview/"; fi
 }
 

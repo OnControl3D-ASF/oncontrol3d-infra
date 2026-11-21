@@ -79,8 +79,13 @@ class Redirect(Handler):
     do_GET = do_POST = do_PUT = do_DELETE = route
 
 
-http = ThreadingHTTPServer(("127.0.0.1", 0), Redirect)
-https = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+class Quiet(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):  # failed TLS handshakes are expected in some tests
+        pass
+
+
+http = Quiet(("127.0.0.1", 0), Redirect)
+https = Quiet(("127.0.0.1", 0), Handler)
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 ctx.load_cert_chain(cert, key)
 https.socket = ctx.wrap_socket(https.socket, server_side=True)
