@@ -1,0 +1,56 @@
+name: Platform
+
+# Edge platform (Traefik, cert-manager, routing, Orthanc) in k8s/platform:
+#   PR   -> offline validation only (helm template + render + kubeconform + shellcheck + actionlint); nothing is applied.
+#   main -> same validation, then apply to the AKS dev cluster behind environment "dev" approval (see docs/edge.md).
+# Authentication: OpenID Connect with id-gh-iac-dev (AKS RBAC Cluster Admin). No client secrets.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "k8s/platform/**"
+      - ".github/workflows/platform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "k8s/platform/**"
+      - ".github/workflows/platform.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned tools; every download is verified against its published sha256.
+  KUBECONFORM_VERSION: v0.8.0
+  KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+  ACTIONLINT_VERSION: 1.7.12
+  ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+
+jobs:
+  validate:
+    name: Validate platform manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install kubeconform and actionlint
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -fsSLo kubeconform.tgz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tgz" | sha256sum -c -
+          tar -xzf kubeconform.tgz -C bin kubeconform
+          curl -fsSLo actionlint.tgz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tgz" | sha256sum -c -
+          tar -xzf actionlint.tgz -C bin actionlint
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: actionlint
+        run: actionlint
+
+      # shellcheck, smoke.sh self-test, helm template (traefik, cert-manager),
+      # render.sh dev|prod + kubeconform. Needs network only to pull the pinned charts.
+      - name: Validate platform
+        run: k8s/platform/validate.sh
