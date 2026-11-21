@@ -1,0 +1,93 @@
+# Public edge of one namespace (E7): config for the apps, TLS certificate and the two Ingresses.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: edge
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: edge
+data:
+  # Consumed (optional: true) by auth/clinical/imaging for CORS allowed origins.
+  PUBLIC_HOST: ${PUBLIC_HOST}
+  PUBLIC_ORIGIN: ${PUBLIC_ORIGIN}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: edge-tls
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: edge
+spec:
+  secretName: edge-tls
+  dnsNames:
+    - ${PUBLIC_HOST}
+  issuerRef:
+    name: ${CERT_ISSUER}
+    kind: ClusterIssuer
+---
+# `/api` -> clinical and `/` -> frontend. /internal has NO rule: it falls through to the frontend (404).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: edge
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: edge
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - ${PUBLIC_HOST}
+      secretName: edge-tls
+  rules:
+    - host: ${PUBLIC_HOST}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: clinical
+                port:
+                  number: 8081
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000
+---
+# `/api/auth` -> auth, from the first edge deploy (spec I2.2): clinical keeps its legacy /api/auth, which must never
+# be public. Traefik ranks routers by rule length, so this longer PathPrefix beats `/api` of Ingress `edge`.
+# Edge login rate limit per source IP (rl-auth) is attached through the CRD middleware annotation.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: edge-auth
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/part-of: edge
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.middlewares: ${NAMESPACE}-rl-auth@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - ${PUBLIC_HOST}
+      secretName: edge-tls
+  rules:
+    - host: ${PUBLIC_HOST}
+      http:
+        paths:
+          - path: /api/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth
+                port:
+                  number: 8082

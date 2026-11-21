@@ -1,0 +1,162 @@
+# Orthanc (third-party PACS + VolView plugin), owned by the platform. NO HPA by design: one RWO disk + SQLite index
+# cannot be shared by several pods; Recreate avoids two pods fighting for the volume during a rollout (docs/edge.md).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: orthanc-data
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: orthanc
+    app.kubernetes.io/part-of: edge
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: managed-csi
+  resources:
+    requests:
+      storage: 8Gi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orthanc
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: orthanc
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orthanc
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: orthanc
+    app.kubernetes.io/part-of: edge
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: orthanc
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: orthanc
+    spec:
+      serviceAccountName: orthanc
+      automountServiceAccountToken: false
+      # Pod Security "restricted": the upstream image runs as root unless told otherwise, so uid/gid/fsGroup are forced
+      # here. fsGroup makes the managed-csi volume writable for that uid. Verified live in step 2.7 (cannot be offline).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10042
+        runAsGroup: 10042
+        fsGroup: 10042
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: orthanc
+          image: ${ORTHANC_IMAGE}
+          ports:
+            - name: http
+              containerPort: 8042
+          env:
+            - name: ORTHANC__NAME
+              value: OnControl3D
+            - name: VOLVIEW_PLUGIN_ENABLED
+              value: "true"
+            - name: DICOM_WEB_PLUGIN_ENABLED
+              value: "true"
+            # Orthanc is never exposed raw: only GET /volview/ is routed by the edge and a NetworkPolicy limits callers.
+            # The platform's own clients (clinical, imaging) call it without credentials, same as docker-compose.
+            - name: ORTHANC__AUTHENTICATION_ENABLED
+              value: "false"
+            - name: HOME
+              value: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 768Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            # The entrypoint renders its configuration at startup; root FS stays writable until step 2.7 proves
+            # `readOnlyRootFilesystem: true` + /tmp emptyDir works with this image (design fallback).
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+          startupProbe:
+            httpGet:
+              path: /system
+              port: http
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /system
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /system
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/orthanc/db
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: orthanc-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orthanc
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: orthanc
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: orthanc
+  ports:
+    - name: http
+      port: 8042
+      targetPort: http
+---
+# Own-pod policy (E8): who may call Orthanc. Ingress only; egress is governed by default-deny (T2-7) when it lands.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: orthanc
+  namespace: ${NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: orthanc
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: clinical
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: imaging
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+      ports:
+        - port: 8042
+          protocol: TCP

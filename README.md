@@ -119,6 +119,7 @@ Service Bus, Function App + Storage, Application Insights and Key Vault, with `d
 and deploys on `main` behind environment approvals, authenticating to Azure with OIDC.
 
 - Architecture, environments and cost: [docs/iac.md](docs/iac.md)
+- Public edge on AKS (Traefik, cert-manager, routing, Orthanc, smoke): [docs/edge.md](docs/edge.md)
 - One-time Azure/GitHub setup (OIDC, environments, secrets): [docs/setup-azure-oidc.md](docs/setup-azure-oidc.md)
 
 ## Demo en AKS

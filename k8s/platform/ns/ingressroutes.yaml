@@ -1,0 +1,42 @@
+# Allowlisted public routes to imaging and Orthanc (spec I2.2/I2.3). Anything else under /imaging or /volview matches no
+# rule here and falls through to the frontend catch-all (404/405), so segment-lungs, /imaging/orthanc/*, other derived
+# names and non-GET methods never reach imaging or Orthanc.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: imaging-derived
+  namespace: ${NAMESPACE}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      # {id} = UUID-like Orthanc id: five groups of 8 hex digits.
+      match: 'Host(`${PUBLIC_HOST}`) && Method(`GET`) && PathRegexp(`^/imaging/studies/[0-9a-f]{8}(-[0-9a-f]{8}){4}/derived/(lung-volume|lung-mask|lung-highlighted|lung-surface)$`)'
+      middlewares:
+        - name: rl-imaging
+        - name: strip-imaging
+      services:
+        - name: imaging
+          port: 8001
+  tls:
+    secretName: edge-tls
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: volview
+  namespace: ${NAMESPACE}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: 'Host(`${PUBLIC_HOST}`) && Method(`GET`) && PathPrefix(`/volview/`)'
+      middlewares:
+        - name: rl-volview
+      services:
+        - name: orthanc
+          port: 8042
+  tls:
+    secretName: edge-tls

@@ -1,0 +1,36 @@
+# cert-manager (E2). Installed in namespace `cert-manager` by platform.yml.
+crds:
+  enabled: true
+  keep: true # `helm uninstall` must never delete Certificates/Issuers
+
+# Smallest footprint that fits the 2-node dev cluster (design capacity table: ~60m / 160Mi total).
+resources:
+  requests:
+    cpu: 30m
+    memory: 64Mi
+  limits:
+    memory: 128Mi
+webhook:
+  resources:
+    requests:
+      cpu: 15m
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+cainjector:
+  resources:
+    requests:
+      cpu: 15m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+startupapicheck:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+
+prometheus:
+  enabled: false # no Prometheus in the cluster

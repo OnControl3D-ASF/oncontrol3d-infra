@@ -1,0 +1,167 @@
+name: Platform
+
+# Edge platform (Traefik, cert-manager, routing, Orthanc) in k8s/platform:
+#   PR   -> offline validation only (helm template + render + kubeconform + shellcheck + actionlint); nothing is applied.
+#   main -> same validation, then apply to the AKS dev cluster behind environment "dev" approval (see docs/edge.md).
+# Authentication: OpenID Connect with id-gh-iac-dev (AKS RBAC Cluster Admin). No client secrets.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "k8s/platform/**"
+      - ".github/workflows/platform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "k8s/platform/**"
+      - ".github/workflows/platform.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Pinned tools; every download is verified against its published sha256.
+  KUBECONFORM_VERSION: v0.8.0
+  KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+  ACTIONLINT_VERSION: 1.7.12
+  ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+
+jobs:
+  validate:
+    name: Validate platform manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install kubeconform and actionlint
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP"
+          curl -fsSLo kubeconform.tgz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tgz" | sha256sum -c -
+          tar -xzf kubeconform.tgz -C bin kubeconform
+          curl -fsSLo actionlint.tgz "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tgz" | sha256sum -c -
+          tar -xzf actionlint.tgz -C bin actionlint
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: actionlint
+        run: actionlint
+
+      # test/check_*.py parse the YAML; PyYAML is normally present on the runner image, this makes it certain.
+      - name: Install PyYAML
+        run: python3 -c "import yaml" 2>/dev/null || python3 -m pip install --user PyYAML
+
+      # shellcheck, smoke.sh self-test, helm template (traefik, cert-manager),
+      # render.sh dev|prod + kubeconform. Needs network only to pull the pinned charts.
+      - name: Validate platform
+        run: k8s/platform/validate.sh
+
+  deploy:
+    name: Apply to AKS (dev)
+    # Never on pull requests, never from another branch. The `dev` environment holds the approval gate
+    # (Settings > Environments > dev: required reviewer + main only).
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: dev
+    concurrency:
+      group: platform-deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write # OIDC token for azure/login (id-gh-iac-dev, AKS RBAC Cluster Admin)
+    env:
+      # Environments applied to the cluster. D5 (CUTTABLE) activates the prod namespace: ENVS: "dev prod".
+      ENVS: dev
+      ACME_EMAIL: ${{ vars.ACME_EMAIL }}
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check configuration
+        run: |
+          [ -n "$ACME_EMAIL" ] || { echo "::error::Repository variable ACME_EMAIL is not set (docs/edge.md, step 2.7)"; exit 1; }
+          [ -n "$RESOURCE_GROUP" ] || { echo "::error::Environment variable AZURE_RESOURCE_GROUP is not set"; exit 1; }
+
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: azure/use-kubelogin@v1
+        with:
+          kubelogin-version: v0.2.22
+
+      - name: Connect to AKS
+        run: |
+          AKS=$(az aks list -g "$RESOURCE_GROUP" --query '[0].name' -o tsv)
+          [ -n "$AKS" ] || { echo "::error::No AKS cluster in $RESOURCE_GROUP (T2-1 not deployed?)"; exit 1; }
+          az aks get-credentials -g "$RESOURCE_GROUP" -n "$AKS" --overwrite-existing
+          kubelogin convert-kubeconfig -l azurecli
+          kubectl get nodes
+
+      # cert-manager first: its CRDs (Certificate, ClusterIssuer) are needed by the objects applied later.
+      - name: Install cert-manager
+        working-directory: k8s/platform
+        run: |
+          . ./versions.env
+          kubectl create namespace cert-manager --dry-run=client -o yaml | kubectl apply -f -
+          helm upgrade --install cert-manager cert-manager \
+            --repo "$CERT_MANAGER_CHART_REPO" --version "$CERT_MANAGER_CHART_VERSION" \
+            --namespace cert-manager -f cert-manager-values.yaml --wait --timeout 5m
+
+      # One Traefik for every env. The Azure DNS label of its LB Service comes from env/dev.env;
+      # the prod host gets its own LB Service (traefik-prod) from render.sh.
+      - name: Install Traefik
+        working-directory: k8s/platform
+        run: |
+          . ./versions.env
+          DNS_LABEL=$(. ./env/dev.env && echo "$DNS_LABEL")
+          kubectl create namespace traefik --dry-run=client -o yaml | kubectl apply -f -
+          kubectl label namespace traefik pod-security.kubernetes.io/enforce=restricted --overwrite
+          helm upgrade --install traefik traefik \
+            --repo "$TRAEFIK_CHART_REPO" --version "$TRAEFIK_CHART_VERSION" \
+            --namespace traefik -f traefik-values.yaml \
+            --set-string "service.annotations.service\.beta\.kubernetes\.io/azure-dns-label-name=$DNS_LABEL" \
+            --wait --timeout 5m
+
+      - name: Apply cluster objects and namespace objects
+        working-directory: k8s/platform
+        run: |
+          for env in $ENVS; do ./render.sh "$env" cluster | kubectl apply -f -; done
+          for env in $ENVS; do ./render.sh "$env" ns | kubectl apply -f -; done
+
+      - name: Wait for Orthanc, load balancer and certificate
+        working-directory: k8s/platform
+        run: |
+          for _ in $(seq 60); do
+            ip=$(kubectl -n traefik get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+            [ -n "$ip" ] && break
+            sleep 10
+          done
+          [ -n "${ip:-}" ] || { echo "::error::Traefik LoadBalancer did not get a public IP in 10 min"; exit 1; }
+          echo "Traefik LB IP: $ip" | tee -a "$GITHUB_STEP_SUMMARY"
+          for env in $ENVS; do
+            # shellcheck source=/dev/null
+            ns=$(. "./env/$env.env" && echo "$NAMESPACE")
+            kubectl -n "$ns" rollout status deploy/orthanc --timeout=5m
+            kubectl -n "$ns" wait --for=condition=Ready certificate/edge-tls --timeout=10m
+          done
+
+      # Level `platform` only: the application workloads are deployed by their own repos (T2-3..T2-6).
+      - name: Smoke test (platform)
+        working-directory: k8s/platform
+        run: |
+          for env in $ENVS; do
+            # shellcheck source=/dev/null
+            host=$(. "./env/$env.env" && echo "$DNS_LABEL.$AZURE_LOCATION.cloudapp.azure.com")
+            # shellcheck source=/dev/null
+            issuer=$(. "./env/$env.env" && echo "$CERT_ISSUER")
+            echo "### $env: https://$host (issuer $issuer)" >> "$GITHUB_STEP_SUMMARY"
+            if [ "$issuer" = letsencrypt-staging ]; then export SMOKE_STAGING_CERT=1; else unset SMOKE_STAGING_CERT; fi
+            ./smoke.sh "$host" platform | tee -a "$GITHUB_STEP_SUMMARY"
+          done

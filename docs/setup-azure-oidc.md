@@ -174,3 +174,14 @@ openssl rand -base64 48 | tr -d '\n' | gh secret set AUTH_INTERNAL_TOKEN --env d
 SEED=$(openssl rand -base64 18); echo "demo password: $SEED"   # guardar en un gestor de contraseñas
 printf %s "$SEED" | gh secret set SEED_USER_PASSWORD --env dev -R "$R"; unset SEED
 ```
+
+### Variable para el edge (`platform.yml`)
+
+`platform.yml` reutiliza el environment `dev` de este repo (identidad `id-gh-iac-dev`, que ya tiene *AKS RBAC Cluster Admin*).
+Solo falta el correo de contacto de Let's Encrypt (avisos de expiración; no es un secreto):
+
+```bash
+gh variable set ACME_EMAIL -R OnControl3D-ASF/oncontrol3d-infra -b "<correo-real>"
+```
+
+Detalle del edge, versiones y pasos manuales: [edge.md](edge.md).
