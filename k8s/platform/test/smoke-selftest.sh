@@ -48,7 +48,7 @@ start_stub leaky
 rc=0; run_smoke full || rc=$?
 expect "leaky edge fails level full" 1 "$rc"
 for check in "check 3b" "check 3c" "check 3d" "check 8"; do
-  if rg -q "FAIL.*$check" "$work/out"; then echo "ok   - leaky edge trips $check"; else echo "FAIL - leaky edge did not trip $check"; fails=$((fails + 1)); fi
+  if grep -Eq "FAIL.*$check" "$work/out"; then echo "ok   - leaky edge trips $check"; else echo "FAIL - leaky edge did not trip $check"; fails=$((fails + 1)); fi
 done
 
 # Staging certificates (Let's Encrypt staging CA) are not publicly trusted: SMOKE_STAGING_CERT=1 skips check 2 and
@@ -61,11 +61,11 @@ untrusted() { # level [extra env...] : like run_smoke but WITHOUT the CA that si
 }
 rc=0; untrusted platform || rc=$?
 expect "untrusted chain fails by default (check 2)" 1 "$rc"
-rg -q "FAIL check 2" "$work/out" || { echo "FAIL - check 2 did not trip on an untrusted chain"; fails=$((fails + 1)); }
+grep -Eq "FAIL check 2" "$work/out" || { echo "FAIL - check 2 did not trip on an untrusted chain"; fails=$((fails + 1)); }
 start_stub good
 rc=0; untrusted platform SMOKE_STAGING_CERT=1 || rc=$?
 expect "staging mode accepts an untrusted chain" 0 "$rc"
-rg -q "SKIP.*check 2|check 2.*SKIP" "$work/out" || { echo "FAIL - staging mode must say check 2 is skipped"; fails=$((fails + 1)); }
+grep -Eq "SKIP.*check 2|check 2.*SKIP" "$work/out" || { echo "FAIL - staging mode must say check 2 is skipped"; fails=$((fails + 1)); }
 
 http_port=1; https_port=1
 rc=0; run_smoke platform || rc=$?

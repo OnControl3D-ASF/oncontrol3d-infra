@@ -67,7 +67,7 @@ check_volview() {
 check_volview_rate_limit() {
   # rl-volview is 30/s with burst 100: a burst above 100 requests must produce 429s.
   local n
-  n=$(seq 250 | xargs -P 25 -I{} curl -s -o /dev/null -w '%{http_code}\n' ${cacert:+--cacert "$cacert"} "${insecure[@]}" "$https_base/volview/index.html" | rg -c '^429$' || true)
+  n=$(seq 250 | xargs -P 25 -I{} curl -s -o /dev/null -w '%{http_code}\n' ${cacert:+--cacert "$cacert"} "${insecure[@]}" "$https_base/volview/index.html" | grep -Ec '^429$' || true)
   if [ "${n:-0}" -ge 1 ]; then pass 7 "250 GETs /volview/ -> $n x 429"; else fail 7 "no 429 in 250 rapid GETs to /volview/"; fi
 }
 
