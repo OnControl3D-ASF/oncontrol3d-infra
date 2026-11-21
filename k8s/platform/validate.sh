@@ -2,12 +2,14 @@
 # Offline validation of the edge platform (no cluster, no Azure). Same script locally and in CI.
 #   1. shellcheck on every script          4. helm template cert-manager | kubeconform
 #   2. smoke.sh against a stub edge        5. render.sh dev|prod (all scopes) | kubeconform
-#   3. helm template traefik | kubeconform 6. every rendered object carries the right namespace
+#   3. helm template traefik | kubeconform 6. test/check_render.py: routes, hosts, namespace, Orthanc hardening
 set -euo pipefail
 here=$(cd -- "$(dirname -- "$0")" && pwd)
 cd "$here"
 # shellcheck source=versions.env
 . ./versions.env
+# render.sh needs an e-mail for the ClusterIssuers; a placeholder is fine because nothing is applied here.
+export ACME_EMAIL=${ACME_EMAIL:-ci@example.com}
 
 # CRDs (Traefik, cert-manager, ...) have no schema in the default catalogue: skipped on purpose,
 # everything built-in (Deployment, Service, Ingress, NetworkPolicy, ...) is validated strictly.
@@ -32,8 +34,8 @@ helm template cert-manager cert-manager --repo "$CERT_MANAGER_CHART_REPO" --vers
 for env in dev prod; do
   step "render.sh $env | kubeconform"
   ./render.sh "$env" all | kubeconform "${kubeconform_args[@]}"
-  step "namespace guard ($env)"
-  ./test/check-namespaces.sh "$env"
+  step "semantic checks ($env)"
+  ./test/check_render.py "$env"
 done
 echo
 echo "platform validation: OK"

@@ -1,0 +1,44 @@
+# Traefik middlewares. Rate limits are per source IP (the LB uses externalTrafficPolicy Local, so the source is the
+# real client). Referenced from IngressRoutes by name (same namespace) and from Ingress `edge-auth` by annotation.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: strip-imaging
+  namespace: ${NAMESPACE}
+spec:
+  stripPrefix:
+    prefixes:
+      - /imaging
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rl-imaging
+  namespace: ${NAMESPACE}
+spec:
+  rateLimit:
+    average: 5
+    burst: 20
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rl-volview
+  namespace: ${NAMESPACE}
+spec:
+  rateLimit:
+    average: 30
+    burst: 100
+---
+# Edge limit for /api/auth (login brute force). Looser than auth's own in-memory 5/min (A1.4) on purpose:
+# auth's limiter is per pod, this one holds across replicas and also covers GET /api/auth/audit.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: rl-auth
+  namespace: ${NAMESPACE}
+spec:
+  rateLimit:
+    average: 20
+    period: 1m
+    burst: 10
