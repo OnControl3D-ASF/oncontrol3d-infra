@@ -1,0 +1,89 @@
+# Traefik v3 edge (E1). Installed in namespace `traefik` by platform.yml:
+#   helm upgrade --install traefik traefik --repo $TRAEFIK_CHART_REPO --version $TRAEFIK_CHART_VERSION -n traefik -f traefik-values.yaml
+# The per-env Azure DNS label is NOT here: platform.yml passes it with
+#   --set-string 'service.annotations.service\.beta\.kubernetes\.io/azure-dns-label-name=$DNS_LABEL'
+deployment:
+  replicas: 1 # 2x D2s_v4 are tight (docs/edge.md "Capacity"); eTP Local + 1 replica = only the node running it is LB-healthy
+
+updateStrategy:
+  rollingUpdate:
+    maxUnavailable: 0
+    maxSurge: 1
+
+ingressClass:
+  enabled: true
+  isDefaultClass: false
+  name: traefik
+
+providers:
+  kubernetesIngress:
+    enabled: true
+    # ingressClass filter intentionally unset: it switches Traefik to annotation matching, while our Ingresses and
+    # cert-manager's solver use spec.ingressClassName=traefik. The NGINX add-on is not installed (no competing controller).
+    publishedService:
+      enabled: true
+  kubernetesCRD:
+    enabled: true
+    allowCrossNamespace: false # a namespace can only reference its own Middlewares/Services
+    allowExternalNameServices: false
+  kubernetesGateway:
+    enabled: false
+
+ports:
+  web:
+    # Global HTTP -> HTTPS redirect (E2). Permanent redirects are 308 in Traefik v3 (method-preserving).
+    # HTTP-01 challenges are redirected too; Let's Encrypt follows redirects to https:443 without
+    # validating the certificate, so issuance works (verified in step 2.7).
+    http:
+      redirections:
+        entryPoint:
+          to: websecure
+          scheme: https
+          permanent: true
+  websecure:
+    # Clinical accepts 200 MB uploads (I2.10): Traefik has no body cap by default (no buffering middleware
+    # is used); readTimeout covers slow uploads of the whole request.
+    transport:
+      respondingTimeouts:
+        readTimeout: 600s
+
+service:
+  enabled: true
+  spec:
+    type: LoadBalancer
+    # Keeps the real client IP: required by per-source-IP rate limits (rl-*) and the auth limiter's X-Forwarded-For.
+    externalTrafficPolicy: Local
+  # service.beta.kubernetes.io/azure-dns-label-name is injected per env by platform.yml.
+  annotations: {}
+
+log:
+  level: INFO
+accessLog:
+  enabled: true # client IP + status per request: evidence for the rate limit / routing demos (headers are dropped by default)
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+api:
+  dashboard: false # no dashboard exposed anywhere; no ingressRoute.dashboard either
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+# Restricted-PSA friendly (chart defaults already: non-root 65532, RO root FS, drop ALL, seccomp). Explicit on purpose.
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+  readOnlyRootFilesystem: true
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
