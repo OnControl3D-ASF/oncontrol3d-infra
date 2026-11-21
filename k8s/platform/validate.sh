@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Offline validation of the edge platform (no cluster, no Azure). Same script locally and in CI.
-#   1. shellcheck on every script          4. helm template cert-manager | kubeconform
-#   2. smoke.sh against a stub edge        5. render.sh dev|prod (all scopes) | kubeconform
-#   3. helm template traefik | kubeconform 6. test/check_render.py: routes, hosts, namespace, Orthanc hardening
+#   1. shellcheck on every script            5. helm template cert-manager | kubeconform
+#   2. platform.yml guard rails              6. render.sh dev|prod (all scopes) | kubeconform
+#   3. smoke.sh against a stub edge          7. test/check_render.py: routes, hosts, namespace, Orthanc hardening
+#   4. helm template traefik | kubeconform
 set -euo pipefail
 here=$(cd -- "$(dirname -- "$0")" && pwd)
 cd "$here"
@@ -19,6 +20,9 @@ step() { printf '\n== %s\n' "$*"; }
 
 step "shellcheck"
 shellcheck -x ./*.sh test/*.sh
+
+step "platform.yml guard rails"
+./test/check_workflow.py
 
 step "smoke.sh self-test (stub edge)"
 ./test/smoke-selftest.sh
