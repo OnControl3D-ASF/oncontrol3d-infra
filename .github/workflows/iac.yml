@@ -51,6 +51,8 @@ jobs:
         env:
           DB_ADMIN_PASSWORD: ci-build-only-placeholder-not-a-secret
           JWT_SECRET: ci-build-only-placeholder-not-a-secret-0123456789
+          AUTH_INTERNAL_TOKEN: ci-build-only-placeholder-not-a-secret-0123456789
+          SEED_USER_PASSWORD: ci-build-only-seed-pw
         run: |
           for env in dev prod; do
             az bicep build-params --file "bicep/params/$env.bicepparam" --outfile "build/$env.parameters.json"
@@ -97,6 +99,8 @@ jobs:
         env:
           DB_ADMIN_PASSWORD: whatif-placeholder-not-a-secret
           JWT_SECRET: whatif-placeholder-not-a-secret-0123456789abcdef
+          AUTH_INTERNAL_TOKEN: whatif-placeholder-not-a-secret-0123456789abcdef
+          SEED_USER_PASSWORD: whatif-placeholder-seed
         run: |
           az bicep install
           az deployment group what-if \
@@ -148,6 +152,8 @@ jobs:
         env:
           DB_ADMIN_PASSWORD: ${{ secrets.DB_ADMIN_PASSWORD }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          AUTH_INTERNAL_TOKEN: ${{ secrets.AUTH_INTERNAL_TOKEN }}
+          SEED_USER_PASSWORD: ${{ secrets.SEED_USER_PASSWORD }}
         run: |
           az bicep install
           az deployment group create \
@@ -180,11 +186,14 @@ jobs:
           fi
           az aks get-credentials -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$AKS" --overwrite-existing
           kubelogin convert-kubeconfig -l azurecli
-          kubectl create namespace oncontrol --dry-run=client -o yaml | kubectl apply -f -
-          kubectl label namespace oncontrol \
-            pod-security.kubernetes.io/enforce=restricted \
-            pod-security.kubernetes.io/warn=restricted --overwrite
-          echo "- Namespace \`oncontrol\` ready (Pod Security: restricted)" >> "$GITHUB_STEP_SUMMARY"
+          # Same namespaces as the federated credentials (appNamespaces in main.bicep).
+          for NS in oncontrol oncontrol-prod; do
+            kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
+            kubectl label namespace "$NS" \
+              pod-security.kubernetes.io/enforce=restricted \
+              pod-security.kubernetes.io/warn=restricted --overwrite
+            echo "- Namespace \`$NS\` ready (Pod Security: restricted)" >> "$GITHUB_STEP_SUMMARY"
+          done
 
   deploy-prod:
     name: Deploy prod
@@ -208,6 +217,8 @@ jobs:
         env:
           DB_ADMIN_PASSWORD: ${{ secrets.DB_ADMIN_PASSWORD }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          AUTH_INTERNAL_TOKEN: ${{ secrets.AUTH_INTERNAL_TOKEN }}
+          SEED_USER_PASSWORD: ${{ secrets.SEED_USER_PASSWORD }}
         run: |
           az bicep install
           az deployment group create \
@@ -240,8 +251,11 @@ jobs:
           fi
           az aks get-credentials -g "${{ vars.AZURE_RESOURCE_GROUP }}" -n "$AKS" --overwrite-existing
           kubelogin convert-kubeconfig -l azurecli
-          kubectl create namespace oncontrol --dry-run=client -o yaml | kubectl apply -f -
-          kubectl label namespace oncontrol \
-            pod-security.kubernetes.io/enforce=restricted \
-            pod-security.kubernetes.io/warn=restricted --overwrite
-          echo "- Namespace \`oncontrol\` ready (Pod Security: restricted)" >> "$GITHUB_STEP_SUMMARY"
+          # Same namespaces as the federated credentials (appNamespaces in main.bicep).
+          for NS in oncontrol oncontrol-prod; do
+            kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
+            kubectl label namespace "$NS" \
+              pod-security.kubernetes.io/enforce=restricted \
+              pod-security.kubernetes.io/warn=restricted --overwrite
+            echo "- Namespace \`$NS\` ready (Pod Security: restricted)" >> "$GITHUB_STEP_SUMMARY"
+          done
