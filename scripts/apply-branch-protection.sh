@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Applies the branch protection of `main` documented in docs/branch-protection.md.
 #
-#   scripts/apply-branch-protection.sh [clinical|imaging|infra|all] [--dry-run]
+#   scripts/apply-branch-protection.sh [clinical|auth|imaging|infra|all] [--dry-run]
 #
 # Idempotent (PUT replaces the whole protection). Requires `gh` authenticated as a repository
 # admin. Required check names must exist on open PRs before tightening them, otherwise those PRs
@@ -14,6 +14,7 @@ DRY_RUN="${2:-}"
 
 # Required status checks per repository (job names as reported by GitHub Actions).
 CLINICAL_CHECKS='"Build, test & quality gate","Validate Kubernetes manifests","SAST (Semgrep)","Dependency scan (Trivy)","Secret scan (gitleaks)","Image scan (Trivy)"'
+AUTH_CHECKS='"Build, test & coverage gate","SAST (Semgrep)","Dependency scan (Trivy)","Secret scan (gitleaks)","Image scan (Trivy)"'
 IMAGING_CHECKS='"Build, lint & test","Validate Kubernetes manifests","SAST (Semgrep)","Dependency scan (Trivy)","Secret scan (gitleaks)","Image scan (Trivy)"'
 # IaC and third-party image scans are path-filtered: requiring them would block unrelated PRs.
 INFRA_CHECKS='"gitleaks"'
@@ -49,12 +50,14 @@ apply() {
 
 case "$TARGET" in
   clinical) apply oncontrol3d-backend-clinical "$CLINICAL_CHECKS" ;;
+  auth)     apply oncontrol3d-auth-service "$AUTH_CHECKS" ;;
   imaging)  apply oncontrol3d-imaging-service "$IMAGING_CHECKS" ;;
   infra)    apply oncontrol3d-infra "$INFRA_CHECKS" ;;
   all)
     apply oncontrol3d-backend-clinical "$CLINICAL_CHECKS"
+    apply oncontrol3d-auth-service "$AUTH_CHECKS"
     apply oncontrol3d-imaging-service "$IMAGING_CHECKS"
     apply oncontrol3d-infra "$INFRA_CHECKS"
     ;;
-  *) echo "usage: $0 [clinical|imaging|infra|all] [--dry-run]" >&2; exit 2 ;;
+  *) echo "usage: $0 [clinical|auth|imaging|infra|all] [--dry-run]" >&2; exit 2 ;;
 esac
