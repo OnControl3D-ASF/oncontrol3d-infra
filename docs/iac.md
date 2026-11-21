@@ -10,9 +10,9 @@ bicep/
 │   ├── monitoring.bicep       # Log Analytics + Application Insights (con tope diario)
 │   ├── acr.bicep              # Container Registry (sin admin user) + AcrPull
 │   ├── aks.bicep              # AKS: OIDC issuer, workload identity, CSI de Key Vault
-│   ├── workload-identity.bicep# Identidad del Clinical Service federada al service account
-│   ├── postgres.bicep         # PostgreSQL Flexible 16 + base OnControlSem
-│   ├── keyvault.bicep         # Key Vault RBAC + secretos db-password / jwt-secret
+│   ├── workload-identity.bicep# Identidad (clinical, auth) federada al service account en cada namespace
+│   ├── postgres.bicep         # PostgreSQL Flexible 16 + base OnControlSem + bases adicionales
+│   ├── keyvault.bicep         # Key Vault RBAC + secretos db-password / jwt-secret / auth-internal-token / seed-user-password
 │   ├── servicebus.bicep       # Namespace + cola toxicity-alerts (SAS deshabilitado)
 │   └── functionapp.bicep      # Function App Flex Consumption (Java 21) + Storage
 └── params/
@@ -26,9 +26,11 @@ bicep/
 flowchart LR
   subgraph AKS["AKS (OIDC + workload identity)"]
     clinical["Clinical Service pod<br/>SA oncontrol/clinical"]
+    auth["Auth Service pod<br/>SA oncontrol/auth"]
   end
   ACR[(ACR)] -- AcrPull --> AKS
-  clinical -- "Key Vault Secrets User" --> KV[(Key Vault<br/>db-password, jwt-secret)]
+  clinical -- "Key Vault Secrets User" --> KV[(Key Vault<br/>db-password, jwt-secret,<br/>auth-internal-token, seed-user-password)]
+  auth -- "Key Vault Secrets User" --> KV
   clinical -- "Service Bus Data Sender" --> SB[[Service Bus<br/>toxicity-alerts]]
   clinical -- "JDBC + TLS" --> PG[(PostgreSQL Flexible 16)]
   SB -- "Service Bus Data Receiver" --> FN["Function App<br/>Flex Consumption, Java 21"]
@@ -44,13 +46,36 @@ Región: **brazilsouth** (la toma de su resource group). Ver por qué en la secc
 
 | Parámetro | dev | prod |
 |---|---|---|
-| AKS | Free, 1 × Standard_D2s_v4, disco SO 32 GiB | Standard (SLA), 2 × Standard_D2s_v4, disco 64 GiB, Container Insights |
+| AKS | Free, 2 × Standard_D2s_v4, disco SO 32 GiB, Cilium | Standard (SLA), 2 × Standard_D2s_v4, disco 64 GiB, Container Insights |
 | PostgreSQL | B1ms, 32 GB, backup 7 días | B2s, 64 GB, backup 14 días |
 | ACR | Basic | Standard |
 | Key Vault | sin purge protection | purge protection |
 | Logs | 30 días, tope 1 GB/día | 90 días, tope 5 GB/día |
 
 `deployAks=false` despliega solo datos, mensajería, secretos y la Function (sin AKS ni ACR).
+
+### Cambios para el auth-service en AKS
+
+- **Cilium** (`networkDataplane` y `networkPolicy` = `cilium`): se fija al crear el cluster y es **irreversible**
+  (volver al dataplane por defecto exige recrear el cluster). Sin NetworkPolicies aplicadas es inocuo.
+- **2 nodos** con `upgradeSettings {maxSurge: 0, maxUnavailable: 1}`: la cuota DSv4 (4 vCPU) no admite un nodo extra
+  durante upgrades, se actualiza de a un nodo.
+- **Bases de datos adicionales** en el mismo servidor PostgreSQL (`additionalDatabases`, gratis): `oncontrol_auth`,
+  `oncontrol_prod`, `oncontrol_auth_prod`. Mismo login administrador para todas (riesgo documentado; roles por servicio
+  quedan para después de TB4).
+- **Secretos nuevos** escritos por Bicep en Key Vault desde secretos del environment de GitHub (sin `az keyvault secret set`):
+  `AUTH_INTERNAL_TOKEN` (>= 32 bytes) -> `auth-internal-token`; `SEED_USER_PASSWORD` (16-72 bytes, límite de entrada de
+  bcrypt) -> `seed-user-password`. Los params fallan al compilar si faltan.
+- **Identidad `id-<prefijo>-auth`** (service account `auth`) con credencial federada por namespace (`appNamespaces`:
+  `oncontrol`, `oncontrol-prod`; escritura serializada con `@batchSize(1)` porque ARM rechaza escrituras concurrentes sobre
+  una misma identidad) y lectura de Key Vault. Nuevos outputs: `authWorkloadIdentityClientId`, `postgresFqdn` (ya existente).
+- `iac.yml` crea los namespaces `oncontrol` y `oncontrol-prod` con Pod Security `restricted`.
+
+### Cuota y costo con 2 nodos (dev)
+
+- Cuota DSv4 = 4 vCPU = exactamente 2 × D2s_v4: no hay margen para un tercer nodo ni para surge.
+- Costo con todo encendido: **~USD 0,38 por hora** (2 nodos USD 0,306 + PostgreSQL, LB, IP). Apagar al terminar
+  (`az aks stop`, `az postgres flexible-server stop`).
 
 ## Restricciones de la suscripción Azure for Students (verificadas el 2026-11-17)
 
@@ -86,7 +111,7 @@ Ventaja colateral: brazilsouth es la región permitida más cercana a Perú (men
 
 **Encendido 24/7 dev supera ampliamente el crédito de Azure for Students (USD 100).** Uso obligatorio:
 
-- Encender solo para pruebas y demos: **≈ USD 0,24 por hora** con todo encendido (una demo de 4 h ≈ USD 1).
+- Encender solo para pruebas y demos: **≈ USD 0,24 por hora** con 1 nodo (**≈ USD 0,38** con los 2 nodos de dev actuales; una demo de 4 h ≈ USD 1,5).
 - Apagar al terminar (se conservan configuración y datos):
   ```bash
   az aks stop -g rg-oncontrol3d-dev -n aks-oc3d-dev
