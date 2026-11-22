@@ -36,7 +36,7 @@ flowchart LR
   SB -- "Service Bus Data Receiver" --> FN["Function App<br/>Flex Consumption, Java 21"]
   FN -- "Blob/Queue/Table Data" --> ST[(Storage)]
   FN --> AI[Application Insights]
-  AKS -. "Container Insights (prod)" .-> LA[(Log Analytics)]
+  AKS -. "Container Insights" .-> LA[(Log Analytics)]
   AI --> LA
 ```
 
@@ -46,7 +46,7 @@ Región: **brazilsouth** (la toma de su resource group). Ver por qué en la secc
 
 | Parámetro | dev | prod |
 |---|---|---|
-| AKS | Free, 2 × Standard_D2s_v4, disco SO 32 GiB, Cilium | Standard (SLA), 2 × Standard_D2s_v4, disco 64 GiB, Container Insights |
+| AKS | Free, 2 × Standard_D2s_v4, disco SO 32 GiB, Cilium, Container Insights | Standard (SLA), 2 × Standard_D2s_v4, disco 64 GiB, Container Insights |
 | PostgreSQL | B1ms, 32 GB, backup 7 días | B2s, 64 GB, backup 14 días |
 | ACR | Basic | Standard |
 | Key Vault | sin purge protection | purge protection |
@@ -107,7 +107,8 @@ Ventaja colateral: brazilsouth es la región permitida más cercana a Perú (men
 | Almacenamiento PostgreSQL 32 GB | ≈ USD 0,115/GB-mes *(referencial)* | ≈ 3,68 |
 | Service Bus Basic | USD 0,05 por millón de operaciones | ≈ 0 |
 | Function App Flex Consumption | dentro de la cuota gratuita | ≈ 0 |
-| Key Vault, Storage, Log Analytics (bajo volumen) | — | < 1 |
+| Key Vault, Storage | — | < 1 |
+| Log Analytics: ingesta de Container Insights (tope `logDailyQuotaGb` = 1 GB/día) | USD 4,60/GB; primeros 5 GB/mes gratis | ≤ USD 4,60 por día encendido |
 | **Total** | | **≈ USD 177/mes** |
 
 **Encendido 24/7 dev supera ampliamente el crédito de Azure for Students (USD 100).** Uso obligatorio:
