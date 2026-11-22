@@ -13,7 +13,8 @@ param aksTier = 'Free'
 param aksNodeVmSize = 'Standard_D2s_v4'
 param aksOsDiskSizeGB = 32
 param aksNodeCount = 2
-param enableContainerInsights = false
+// Container Insights para la sección 4.3 del informe (dashboards, alertas). Tope de ingesta: logDailyQuotaGb.
+param enableContainerInsights = true
 
 param acrSku = 'Basic'
 param postgresSkuName = 'Standard_B1ms'
