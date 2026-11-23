@@ -62,7 +62,8 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/internal/accounts", "/api/auth/internal/accounts"):
             return self.json(401, {"message": "bad token"}) if leaky else self.reply(404, b"<h1>404</h1>")
         if path.startswith("/imaging/studies/") and path.endswith("/derived/lung-surface") and self.command == "GET":
-            return self.json(404, {"detail": "Study not found"})
+            # Same as imaging 0.3.0 for a study without DICOMs: 409 precondition (run /segment-lungs first).
+            return self.json(409, {"detail": "Faltan los DICOM originales. Ejecuta primero /segment-lungs."})
         if path in ("/studies", "/app/explorer.html") and leaky:
             return self.json(200, ["study-1"])
         return self.reply(404, b"<h1>404</h1>")
