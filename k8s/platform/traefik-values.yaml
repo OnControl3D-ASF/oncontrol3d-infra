@@ -31,7 +31,7 @@ providers:
 
 ports:
   web:
-    # Global HTTP -> HTTPS redirect (E2). Permanent redirects are 308 in Traefik v3 (method-preserving).
+    # Global HTTP -> HTTPS redirect (E2). Permanent redirects: 301 for GET/HEAD, 308 for other methods (verified 2026-11-23).
     # HTTP-01 challenges are redirected too; Let's Encrypt follows redirects to https:443 without
     # validating the certificate, so issuance works (verified in step 2.7).
     http:

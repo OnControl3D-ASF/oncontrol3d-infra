@@ -25,6 +25,18 @@ metadata:
     app.kubernetes.io/name: orthanc
 automountServiceAccountToken: false
 ---
+# The entrypoint writes a random /etc/hostid when it is missing (DCMTK UID generation, avoids slow DNS lookups);
+# as uid 10042 it cannot write /etc, so a fixed id is mounted read-only and the entrypoint skips that step.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orthanc-hostid
+  namespace: ${NAMESPACE}
+  labels:
+    app.kubernetes.io/name: orthanc
+data:
+  hostid: "0c3d0042"
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -113,10 +125,24 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/orthanc/db
+            - name: hostid
+              mountPath: /etc/hostid
+              subPath: hostid
+              readOnly: true
+            # Upstream configurator installs enabled plugins here when the directory exists (instead of the
+            # root-owned /usr/share/orthanc/plugins). Verified live on AKS 2026-11-23: dicom-web, gdcm, oe2, volview.
+            - name: run-plugins
+              mountPath: /run/orthanc/plugins
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: orthanc-data
+        - name: hostid
+          configMap:
+            name: orthanc-hostid
+        - name: run-plugins
+          emptyDir:
+            sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service

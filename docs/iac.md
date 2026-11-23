@@ -90,6 +90,7 @@ y un despliegue fallido a mitad de camino también consume crédito.
 | Flex Consumption (`az functionapp list-flexconsumption-locations`) | No disponible en `chilecentral` | Descartada |
 | Tamaños para AKS sin restricción **y** con cuota (`az aks list-vm-skus` × `az vm list-usage`) | `canadacentral`: solo Bpsv2 (**ARM64**, imágenes actuales amd64). `brazilsouth`: D2s_v4, D2_v4, D2ds_v4, E2_v4… (DSv4 = 4 vCPU) | **brazilsouth**, nodo `Standard_D2s_v4` (x86, 2 vCPU, 8 GB) |
 | Cuota DASv5 / DASv4 | DASv5 = 0; `Standard_D2as_v4` figura `NotAvailableForSubscription` | Se descartaron los tamaños `as` |
+| Resource providers (2026-11-23) | `Microsoft.OperationsManagement` venía `NotRegistered`: el addon Container Insights dejó el AKS en `Failed` (`MissingSubscriptionRegistration`) | Registrar una vez por suscripción antes del primer deploy: `az provider register -n Microsoft.OperationsManagement --wait`. Para alertas/Prometheus/Grafana: `Microsoft.AlertsManagement`, `Microsoft.Monitor`, `Microsoft.Dashboard` |
 
 `prod` usa 2 × D2s_v4 = 4 vCPU, toda la cuota DSv4: no puede convivir con dev encendido.
 Ventaja colateral: brazilsouth es la región permitida más cercana a Perú (menor latencia para los usuarios).
