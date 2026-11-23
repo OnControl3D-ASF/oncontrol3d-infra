@@ -74,7 +74,9 @@ class Redirect(Handler):
     def route(self):
         if mode == "leaky":
             return self.reply(200, b"plain http app")
-        self.reply(308, b"", extra={"Location": "https://" + (self.headers.get("Host") or "x") + self.path})
+        # Same as Traefik v3 permanent entryPoint redirect (verified on AKS 2026-11-23): GET/HEAD -> 301, others -> 308.
+        code = 301 if self.command in ("GET", "HEAD") else 308
+        self.reply(code, b"", extra={"Location": "https://" + (self.headers.get("Host") or "x") + self.path})
 
     do_GET = do_POST = do_PUT = do_DELETE = route
 

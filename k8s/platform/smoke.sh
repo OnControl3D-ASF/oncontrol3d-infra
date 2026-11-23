@@ -2,7 +2,7 @@
 # Smoke test of the public edge.   Usage: smoke.sh <host> [platform|full]
 #
 #   platform  edge + Orthanc only (works before any application is deployed):
-#               1 HTTP->HTTPS 308   2 valid TLS chain (no -k)   6 /volview/ served   7 /volview rate limit
+#               1 HTTP->HTTPS 301/308   2 valid TLS chain (no -k)   6 /volview/ served   7 /volview rate limit
 #   full      platform + routing of the application workloads (needs auth, clinical, imaging, frontend):
 #               3a login served by auth   3b clinical's legacy register is NOT public   3c /internal never routed
 #               3d login rate limit   4 imaging derived allowlist   5 imaging non-allowlisted paths   8 Orthanc not public
@@ -44,10 +44,17 @@ req() {
 is_json() { [[ $BODY == "{"* || $BODY == "["* ]]; }
 
 check_http_redirect() {
-  local loc
+  # Traefik v3 permanent entryPoint redirect: GET/HEAD -> 301, other methods -> 308 (method-preserving).
+  local loc post ploc
   CODE=$(c -o /dev/null -w '%{http_code} %{redirect_url}' "$http_base/" 2>/dev/null) || CODE="000 "
   loc=${CODE#* }
-  if [ "${CODE%% *}" = 308 ] && [[ $loc == https://* ]]; then pass 1 "HTTP -> 308 $loc"; else fail 1 "expected 308 to https://, got '$CODE'"; fi
+  post=$(c -o /dev/null -X POST -w '%{http_code} %{redirect_url}' "$http_base/" 2>/dev/null) || post="000 "
+  ploc=${post#* }
+  if [[ ${CODE%% *} =~ ^(301|308)$ && $loc == https://* && ${post%% *} = 308 && $ploc == https://* ]]; then
+    pass 1 "HTTP -> GET ${CODE%% *} / POST 308 $loc"
+  else
+    fail 1 "expected GET 301|308 and POST 308 to https://, got GET '$CODE' POST '$post'"
+  fi
 }
 
 check_tls() {
@@ -65,10 +72,11 @@ check_volview() {
 }
 
 check_volview_rate_limit() {
-  # rl-volview is 30/s with burst 100: a burst above 100 requests must produce 429s.
+  # rl-volview is 30/s with burst 100: a burst above 100 requests must produce 429s. Each curl opens a new TLS
+  # connection (~300-400 ms from Peru to brazilsouth), so 25 in parallel stayed under 30/s + burst: 60 do not.
   local n
-  n=$(seq 250 | xargs -P 25 -I{} curl -s -o /dev/null -w '%{http_code}\n' ${cacert:+--cacert "$cacert"} "${insecure[@]}" "$https_base/volview/index.html" | grep -Ec '^429$' || true)
-  if [ "${n:-0}" -ge 1 ]; then pass 7 "250 GETs /volview/ -> $n x 429"; else fail 7 "no 429 in 250 rapid GETs to /volview/"; fi
+  n=$(seq 300 | xargs -P 60 -I{} curl -s --max-time 15 -o /dev/null -w '%{http_code}\n' ${cacert:+--cacert "$cacert"} "${insecure[@]}" "$https_base/volview/index.html" | grep -Ec '^429$' || true)
+  if [ "${n:-0}" -ge 1 ]; then pass 7 "300 GETs /volview/ -> $n x 429"; else fail 7 "no 429 in 300 rapid GETs to /volview/"; fi
 }
 
 check_login_served_by_auth() {
