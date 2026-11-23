@@ -49,7 +49,7 @@ expected = {
     ("Middleware", "strip-imaging"), ("Middleware", "rl-imaging"), ("Middleware", "rl-volview"), ("Middleware", "rl-auth"),
     ("IngressRoute", "imaging-derived"), ("IngressRoute", "volview"),
     ("PersistentVolumeClaim", "orthanc-data"), ("ServiceAccount", "orthanc"), ("Deployment", "orthanc"),
-    ("Service", "orthanc"), ("NetworkPolicy", "orthanc"),
+    ("Service", "orthanc"), ("NetworkPolicy", "orthanc"), ("ConfigMap", "orthanc-hostid"),
 }
 check(set(by) == expected, f"ns inventory differs: missing={sorted(expected - set(by))} extra={sorted(set(by) - expected)}")
 for d in docs:
@@ -129,6 +129,16 @@ check(dep["replicas"] == 1 and dep["strategy"]["type"] == "Recreate", "orthanc: 
 check(pod["securityContext"].get("runAsNonRoot") is True and pod["securityContext"]["seccompProfile"]["type"] == "RuntimeDefault", "orthanc pod PSA restricted")
 check(c["securityContext"]["allowPrivilegeEscalation"] is False and c["securityContext"]["capabilities"]["drop"] == ["ALL"], "orthanc container PSA restricted")
 check(pod.get("automountServiceAccountToken") is False, "orthanc: no SA token")
+# Non-root (uid 10042) cannot write root-owned paths: the entrypoint must find /etc/hostid already present and the
+# configurator must install plugin .so files into /run/orthanc/plugins (verified live on AKS 2026-11-23).
+vols = {v["name"]: v for v in pod.get("volumes", [])}
+mounts = {m["mountPath"]: m for m in c.get("volumeMounts", [])}
+hid = mounts.get("/etc/hostid", {})
+check(hid.get("subPath") == "hostid" and hid.get("readOnly") is True
+      and vols.get(hid.get("name"), {}).get("configMap", {}).get("name") == "orthanc-hostid", "orthanc: /etc/hostid from ConfigMap")
+check(re.fullmatch(r"[0-9a-f]{8}", by[("ConfigMap", "orthanc-hostid")]["data"]["hostid"]) is not None, "orthanc-hostid: 8 hex digits")
+rp = mounts.get("/run/orthanc/plugins", {})
+check("emptyDir" in vols.get(rp.get("name"), {}), "orthanc: /run/orthanc/plugins emptyDir")
 pvc = by[("PersistentVolumeClaim", "orthanc-data")]["spec"]
 check(pvc["resources"]["requests"]["storage"] == "8Gi" and pvc["storageClassName"] == "managed-csi" and pvc["accessModes"] == ["ReadWriteOnce"], f"orthanc pvc: {pvc}")
 np = by[("NetworkPolicy", "orthanc")]["spec"]
