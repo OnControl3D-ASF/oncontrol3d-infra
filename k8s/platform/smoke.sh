@@ -109,8 +109,14 @@ check_login_rate_limit() {
 }
 
 check_imaging_derived() {
+  # Proves the allowlisted path reaches imaging (JSON with FastAPI's "detail", not the frontend's HTML).
+  # Imaging answers 409 for a study without DICOMs (precondition: /segment-lungs first), 404 in older versions.
   req GET "$https_base/imaging/studies/$zero_id/derived/lung-surface"
-  if [ "$CODE" = 404 ] && is_json; then pass 4 "derived/lung-surface zero id -> imaging JSON 404"; else fail 4 "expected imaging JSON 404, got $CODE '$BODY'"; fi
+  if [[ $CODE =~ ^(404|409)$ ]] && is_json && [[ $BODY == *'"detail"'* ]]; then
+    pass 4 "derived/lung-surface zero id -> imaging JSON $CODE"
+  else
+    fail 4 "expected imaging JSON 404|409 with detail, got $CODE '$BODY'"
+  fi
 }
 
 check_imaging_not_exposed() {
