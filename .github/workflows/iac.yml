@@ -170,6 +170,14 @@ jobs:
               print(f"- **{key}**: `{item['value']}`")
           EOF
 
+      # The OIDC client assertion from the first login is valid for 5 minutes and an AKS deploy
+      # takes ~10: without a fresh login, kubelogin fails with AADSTS700024 (assertion expired).
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
       # Platform responsibility: the application pipelines (clinical, imaging) only hold
       # "AKS RBAC Admin" and cannot create namespaces. Pod Security Admission "restricted"
       # rejects pods that run as root, escalate privileges or keep Linux capabilities.
@@ -234,6 +242,13 @@ jobs:
           for key, item in outputs.items():
               print(f"- **{key}**: `{item['value']}`")
           EOF
+
+      # Fresh OIDC login: the first assertion expires (5 min) before the AKS deploy ends.
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       # Platform responsibility: the application pipelines (clinical, imaging) only hold
       # "AKS RBAC Admin" and cannot create namespaces. Pod Security Admission "restricted"
