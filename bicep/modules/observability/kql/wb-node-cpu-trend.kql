@@ -1,0 +1,9 @@
+// Node CPU as % of allocatable, every 5 minutes, per node.
+let allocatable = Perf
+    | where ObjectName == 'K8SNode' and CounterName == 'cpuAllocatableNanoCores'
+    | summarize Allocatable = max(CounterValue) by Computer;
+Perf
+| where ObjectName == 'K8SNode' and CounterName == 'cpuUsageNanoCores'
+| summarize Usage = avg(CounterValue) by bin(TimeGenerated, 5m), Computer
+| join kind=inner allocatable on Computer
+| project TimeGenerated, Computer, CpuPct = round(100.0 * Usage / Allocatable, 1)

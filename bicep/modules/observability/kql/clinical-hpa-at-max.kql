@@ -1,0 +1,6 @@
+// Capacity: clinical stayed at the HPA maximum for the whole window, so the autoscaler cannot add more.
+// The k6 stress test showed this is where latency degrades (report 4.4.3).
+KubePodInventory
+| where Namespace == "oncontrol" and ControllerName startswith "clinical-" and PodStatus == "Running"
+| summarize Replicas = dcount(Name) by bin(TimeGenerated, 1m)
+| summarize MinReplicas = min(Replicas)

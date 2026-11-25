@@ -1,0 +1,11 @@
+// SLIs per service over the selected time range, measured at the edge (Traefik access log).
+ContainerLog
+| where LogEntry contains '@kubernetes' and LogEntry has ' HTTP/'
+| parse LogEntry with * '"' Method ' ' Path ' HTTP/' Proto '" ' Status:int ' ' Bytes ' "' * '" "' * '" ' ReqNum ' "' Router '" "' Backend '" ' DurationMs:long 'ms' *
+| where isnotnull(Status)
+| extend Service = case(Backend has ':8081', 'clinical', Backend has ':8082', 'auth', Backend has ':3000', 'frontend', Backend has ':8001', 'imaging', Backend has ':8042', 'orthanc', 'other')
+| summarize Requests = count(), Errors5xx = countif(Status >= 500), P50Ms = percentile(DurationMs, 50), P95Ms = percentile(DurationMs, 95), P99Ms = percentile(DurationMs, 99) by Service
+| extend AvailabilityPct = round(100.0 * (Requests - Errors5xx) / Requests, 3)
+| extend AvailabilitySLO = iff(AvailabilityPct >= 99.5, 'OK (>= 99.5 %)', 'BREACHED'), LatencySLO = iff(P95Ms < 800, 'OK (p95 < 800 ms)', 'BREACHED')
+| project Service, Requests, Errors5xx, AvailabilityPct, AvailabilitySLO, P50Ms, P95Ms, P99Ms, LatencySLO
+| order by Requests desc
