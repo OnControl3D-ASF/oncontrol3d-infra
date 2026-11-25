@@ -1,0 +1,9 @@
+// SLI availability: share of requests to clinical that Traefik answered without a 5xx. SLO >= 99.5 %.
+// Fires below the SLO; needs >= 20 requests in the window so a single error at idle does not page.
+ContainerLog
+| where LogEntry contains "@kubernetes" and LogEntry has " HTTP/"
+| parse LogEntry with * "\"" Method " " Path " HTTP/" Proto "\" " Status:int " " Bytes " \"" * "\" \"" * "\" " ReqNum " \"" Router "\" \"" Backend "\" " DurationMs:long "ms" *
+| where isnotnull(Status) and Backend has ":8081"
+| summarize Requests = count(), Errors5xx = countif(Status >= 500)
+| where Requests >= 20
+| extend AvailabilityPct = 100.0 * (Requests - Errors5xx) / Requests

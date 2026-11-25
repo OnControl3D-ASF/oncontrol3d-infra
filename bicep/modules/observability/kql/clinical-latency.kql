@@ -1,0 +1,7 @@
+// SLI latency: p95 of clinical requests measured at the edge (Traefik, server side). SLO p95 < 800 ms.
+ContainerLog
+| where LogEntry contains "@kubernetes" and LogEntry has " HTTP/"
+| parse LogEntry with * "\"" Method " " Path " HTTP/" Proto "\" " Status:int " " Bytes " \"" * "\" \"" * "\" " ReqNum " \"" Router "\" \"" Backend "\" " DurationMs:long "ms" *
+| where isnotnull(Status) and Backend has ":8081"
+| summarize Requests = count(), P95Ms = percentile(DurationMs, 95)
+| where Requests >= 20

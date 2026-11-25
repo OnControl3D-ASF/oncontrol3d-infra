@@ -87,6 +87,9 @@ param keyVaultPurgeProtection bool = false
 param logRetentionDays int = 30
 param logDailyQuotaGb int = 1
 
+@description('E-mail addresses for the ops action group (alerts). Empty: alerts only show in Azure Monitor.')
+param alertEmails array = []
+
 var namePrefix = '${projectName}-${environmentName}'
 var compactPrefix = replace(namePrefix, '-', '')
 var suffix = take(uniqueString(resourceGroup().id), 6)
@@ -106,6 +109,19 @@ module monitoring 'modules/monitoring.bicep' = {
     namePrefix: namePrefix
     retentionInDays: logRetentionDays
     dailyQuotaGb: logDailyQuotaGb
+    tags: tags
+  }
+}
+
+// SLO alerts + operations workbook (report 4.3). They query Container Insights data, so they only make sense
+// when the cluster sends it.
+module observability 'modules/observability.bicep' = if (deployAks && enableContainerInsights) {
+  name: 'observability'
+  params: {
+    location: location
+    namePrefix: namePrefix
+    workspaceId: monitoring.outputs.workspaceId
+    alertEmails: alertEmails
     tags: tags
   }
 }

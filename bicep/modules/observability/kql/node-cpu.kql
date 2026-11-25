@@ -1,0 +1,9 @@
+// Node CPU usage as a percentage of allocatable CPU, per node.
+let allocatable = Perf
+    | where ObjectName == "K8SNode" and CounterName == "cpuAllocatableNanoCores"
+    | summarize Allocatable = max(CounterValue) by Computer;
+Perf
+| where ObjectName == "K8SNode" and CounterName == "cpuUsageNanoCores"
+| summarize Usage = avg(CounterValue) by Computer
+| join kind=inner allocatable on Computer
+| project Computer, CpuPct = round(100.0 * Usage / Allocatable, 1)

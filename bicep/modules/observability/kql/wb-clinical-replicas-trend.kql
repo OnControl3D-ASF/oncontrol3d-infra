@@ -1,0 +1,5 @@
+// clinical running replicas per minute (HPA behaviour: min 1, max 3).
+KubePodInventory
+| where Namespace == 'oncontrol' and ControllerName startswith 'clinical-' and PodStatus == 'Running'
+| summarize RunningReplicas = dcount(Name) by bin(TimeGenerated, 1m)
+| extend HpaMax = 3

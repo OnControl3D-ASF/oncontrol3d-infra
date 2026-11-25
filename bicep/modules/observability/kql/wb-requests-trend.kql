@@ -1,0 +1,7 @@
+// Requests per minute by service (traffic).
+ContainerLog
+| where LogEntry contains '@kubernetes' and LogEntry has ' HTTP/'
+| parse LogEntry with * '"' Method ' ' Path ' HTTP/' Proto '" ' Status:int ' ' Bytes ' "' * '" "' * '" ' ReqNum ' "' Router '" "' Backend '" ' DurationMs:long 'ms' *
+| where isnotnull(Status)
+| extend Service = case(Backend has ':8081', 'clinical', Backend has ':8082', 'auth', Backend has ':3000', 'frontend', Backend has ':8001', 'imaging', Backend has ':8042', 'orthanc', 'other')
+| summarize RequestsPerMin = count() by bin(TimeGenerated, 1m), Service

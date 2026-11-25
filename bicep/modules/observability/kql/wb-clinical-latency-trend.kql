@@ -1,0 +1,7 @@
+// clinical latency per minute at the edge: p50 and p95 against the 800 ms SLO.
+ContainerLog
+| where LogEntry contains '@kubernetes' and LogEntry has ' HTTP/'
+| parse LogEntry with * '"' Method ' ' Path ' HTTP/' Proto '" ' Status:int ' ' Bytes ' "' * '" "' * '" ' ReqNum ' "' Router '" "' Backend '" ' DurationMs:long 'ms' *
+| where isnotnull(Status) and Backend has ':8081'
+| summarize P50Ms = percentile(DurationMs, 50), P95Ms = percentile(DurationMs, 95) by bin(TimeGenerated, 1m)
+| extend SloP95Ms = 800

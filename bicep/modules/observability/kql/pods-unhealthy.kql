@@ -1,0 +1,8 @@
+// Application pods that are failing: crash loops, image pull errors, OOM or a failed pod.
+// Latest state per container; init containers that finished ("Completed") are healthy.
+KubePodInventory
+| where Namespace == "oncontrol"
+| summarize arg_max(TimeGenerated, ContainerStatus, ContainerStatusReason, PodStatus) by Name, ContainerName
+| where ContainerStatusReason in ("CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull", "OOMKilled", "Error", "CreateContainerConfigError")
+    or PodStatus == "Failed"
+| summarize UnhealthyPods = dcount(Name)
